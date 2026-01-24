@@ -11,12 +11,14 @@ def mock_managers():
     session_creator = MagicMock()
     execution_tracker = MagicMock()
     injection_engine = MagicMock()
+    tmux_helper = MagicMock()
 
     return {
         "user_manager": user_manager,
         "session_creator": session_creator,
         "execution_tracker": execution_tracker,
-        "injection_engine": injection_engine
+        "injection_engine": injection_engine,
+        "tmux_helper": tmux_helper
     }
 
 
@@ -27,7 +29,8 @@ def client(mock_managers):
         'user_manager': MagicMock(),
         'session_creator': MagicMock(),
         'execution_tracker': MagicMock(),
-        'injection_engine': MagicMock()
+        'injection_engine': MagicMock(),
+        'tmux_helper': MagicMock()
     }):
         from app import app, init_managers
 
@@ -36,7 +39,8 @@ def client(mock_managers):
             mock_managers["user_manager"],
             mock_managers["session_creator"],
             mock_managers["execution_tracker"],
-            mock_managers["injection_engine"]
+            mock_managers["injection_engine"],
+            mock_managers["tmux_helper"]
         )
 
         app.config['TESTING'] = True
@@ -212,3 +216,147 @@ class TestCreateUserRequirements:
         mocks['execution_tracker'].update_metadata.assert_called_once()
         call_args = mocks['execution_tracker'].update_metadata.call_args
         assert call_args[0][1]['requirements'] == 'Build a portfolio website with dark theme'
+
+
+class TestChatEndpoint:
+    """Tests for POST /api/chat/<execution_id> endpoint."""
+
+    def test_chat_endpoint_sends_message(self, client):
+        """Test POST /api/chat sends message to tmux session."""
+        test_client, mocks = client
+
+        # Setup: execution exists and is running
+        mocks['execution_tracker'].get_status.return_value = {
+            'execution_id': 'user123_sess456',
+            'status': 'running'
+        }
+        mocks['tmux_helper'].send_instruction.return_value = True
+
+        response = test_client.post('/api/chat/user123_sess456', json={
+            'message': 'Add a contact form to the homepage'
+        })
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['status'] == 'sent'
+        assert data['execution_id'] == 'user123_sess456'
+
+        # Verify tmux_helper was called correctly
+        mocks['tmux_helper'].send_instruction.assert_called_once_with(
+            'exec_user123_sess456',
+            'Add a contact form to the homepage'
+        )
+
+    def test_chat_endpoint_404_for_missing_execution(self, client):
+        """Test POST /api/chat returns 404 for missing execution."""
+        test_client, mocks = client
+
+        mocks['execution_tracker'].get_status.return_value = None
+
+        response = test_client.post('/api/chat/nonexistent_exec', json={
+            'message': 'Hello'
+        })
+
+        assert response.status_code == 404
+
+    def test_chat_endpoint_400_for_wrong_status(self, client):
+        """Test POST /api/chat returns 400 if execution not running."""
+        test_client, mocks = client
+
+        mocks['execution_tracker'].get_status.return_value = {
+            'execution_id': 'user123_sess456',
+            'status': 'completed'
+        }
+
+        response = test_client.post('/api/chat/user123_sess456', json={
+            'message': 'Hello'
+        })
+
+        assert response.status_code == 400
+
+    def test_chat_endpoint_accepts_waiting_input_status(self, client):
+        """Test POST /api/chat accepts waiting_input status."""
+        test_client, mocks = client
+
+        mocks['execution_tracker'].get_status.return_value = {
+            'execution_id': 'user123_sess456',
+            'status': 'waiting_input'
+        }
+        mocks['tmux_helper'].send_instruction.return_value = True
+
+        response = test_client.post('/api/chat/user123_sess456', json={
+            'message': 'Here is my input'
+        })
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['status'] == 'sent'
+
+    def test_chat_endpoint_400_for_empty_body(self, client):
+        """Test POST /api/chat returns 400 for empty JSON body."""
+        test_client, mocks = client
+
+        # Empty dict {} is falsy in Python, so returns 400
+        response = test_client.post('/api/chat/user123_sess456', json={})
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "error" in data
+
+    def test_chat_endpoint_415_for_no_json_content_type(self, client):
+        """Test POST /api/chat returns 415 if Content-Type not JSON."""
+        test_client, mocks = client
+
+        response = test_client.post('/api/chat/user123_sess456')
+
+        # Flask returns 415 when Content-Type isn't application/json
+        assert response.status_code == 415
+
+    def test_chat_endpoint_400_for_empty_message(self, client):
+        """Test POST /api/chat returns 400 for empty message string."""
+        test_client, mocks = client
+
+        mocks['execution_tracker'].get_status.return_value = {
+            'execution_id': 'user123_sess456',
+            'status': 'running'
+        }
+
+        response = test_client.post('/api/chat/user123_sess456', json={
+            'message': ''
+        })
+
+        assert response.status_code == 400
+        assert 'Message is required' in response.get_json()['error']
+
+    def test_chat_endpoint_400_for_whitespace_message(self, client):
+        """Test POST /api/chat returns 400 for whitespace-only message."""
+        test_client, mocks = client
+
+        mocks['execution_tracker'].get_status.return_value = {
+            'execution_id': 'user123_sess456',
+            'status': 'running'
+        }
+
+        response = test_client.post('/api/chat/user123_sess456', json={
+            'message': '   '
+        })
+
+        assert response.status_code == 400
+        assert 'Message is required' in response.get_json()['error']
+
+    def test_chat_endpoint_500_for_send_failure(self, client):
+        """Test POST /api/chat returns 500 if send_instruction fails."""
+        test_client, mocks = client
+
+        mocks['execution_tracker'].get_status.return_value = {
+            'execution_id': 'user123_sess456',
+            'status': 'running'
+        }
+        mocks['tmux_helper'].send_instruction.return_value = False
+
+        response = test_client.post('/api/chat/user123_sess456', json={
+            'message': 'Hello'
+        })
+
+        assert response.status_code == 500
+        assert 'Failed to send' in response.get_json()['error']

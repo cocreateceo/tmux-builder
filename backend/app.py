@@ -10,6 +10,7 @@ from user_manager import UserManager
 from session_creator import SessionCreator
 from execution_tracker import ExecutionTracker
 from injection_engine import InjectionEngine
+from tmux_helper import TmuxHelper
 
 app = Flask(__name__)
 
@@ -18,13 +19,15 @@ user_manager = UserManager()
 session_creator = SessionCreator()
 execution_tracker = ExecutionTracker()
 injection_engine = InjectionEngine()
+tmux_helper = TmuxHelper()
 
 # Valid configuration options
 VALID_HOST_PROVIDERS = ["aws", "azure"]
 VALID_SITE_TYPES = ["static", "dynamic"]
+CHAT_ALLOWED_STATUSES = ['running', 'waiting_input']
 
 
-def init_managers(um, sc, et, ie):
+def init_managers(um, sc, et, ie, th=None):
     """Initialize managers for testing with mocks.
 
     Args:
@@ -32,12 +35,15 @@ def init_managers(um, sc, et, ie):
         sc: SessionCreator instance or mock
         et: ExecutionTracker instance or mock
         ie: InjectionEngine instance or mock
+        th: TmuxHelper instance or mock (optional)
     """
-    global user_manager, session_creator, execution_tracker, injection_engine
+    global user_manager, session_creator, execution_tracker, injection_engine, tmux_helper
     user_manager = um
     session_creator = sc
     execution_tracker = et
     injection_engine = ie
+    if th is not None:
+        tmux_helper = th
 
 
 @app.route('/api/create-user', methods=['POST'])
@@ -161,6 +167,50 @@ def list_user_sessions(user_id):
     """
     sessions = session_creator.list_sessions(user_id)
     return jsonify({"sessions": sessions})
+
+
+@app.route('/api/chat/<execution_id>', methods=['POST'])
+def chat(execution_id):
+    """Send a message to the Claude session.
+
+    Request body:
+        {
+            "message": string
+        }
+
+    Returns:
+        {"status": "sent", "execution_id": string}
+    """
+    data = request.get_json()
+
+    if not data:
+        return jsonify({"error": "Request body is required"}), 400
+
+    message = data.get("message", "")
+
+    if not message or not message.strip():
+        return jsonify({"error": "Message is required"}), 400
+
+    # Validate execution exists
+    execution = execution_tracker.get_status(execution_id)
+    if not execution:
+        return jsonify({"error": "Execution not found"}), 404
+
+    # Validate execution is in a state that accepts messages
+    if execution.get('status') not in CHAT_ALLOWED_STATUSES:
+        return jsonify({
+            "error": f"Cannot chat - execution status is {execution.get('status')}"
+        }), 400
+
+    # Send message to tmux session
+    success = tmux_helper.send_instruction(f"exec_{execution_id}", message)
+    if not success:
+        return jsonify({"error": "Failed to send message to session"}), 500
+
+    return jsonify({
+        "status": "sent",
+        "execution_id": execution_id
+    })
 
 
 if __name__ == "__main__":

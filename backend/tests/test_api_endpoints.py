@@ -174,3 +174,41 @@ class TestUserSessionsEndpoint:
         assert "sessions" in data
         assert len(data["sessions"]) == 3
         assert "sess_20260124_100000" in data["sessions"]
+
+
+class TestCreateUserRequirements:
+    """Tests for requirements field in POST /api/create-user endpoint."""
+
+    def test_create_user_stores_requirements(self, client):
+        """Test that requirements field is stored in execution metadata."""
+        test_client, mocks = client
+
+        # Setup mocks
+        mocks["user_manager"].create_user.return_value = {
+            "user_id": "test-user-123",
+            "is_new": True
+        }
+        mocks["session_creator"].create_session.return_value = "sess_20260124_120000"
+        mocks["session_creator"].get_session_path.return_value = "/tmp/test/session"
+        mocks["execution_tracker"].create_execution.return_value = "test-user-123_sess_20260124_120000"
+        mocks["injection_engine"].inject.return_value = {
+            "agents_copied": 2,
+            "skills_copied": 3
+        }
+
+        response = test_client.post('/api/create-user', json={
+            'email': 'test@example.com',
+            'phone': '+1234567890',
+            'host_provider': 'aws',
+            'site_type': 'static',
+            'requirements': 'Build a portfolio website with dark theme'
+        })
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert 'execution_id' in data
+
+        # Verify update_metadata was called with requirements
+        mocks['execution_tracker'].update_metadata.assert_called_once()
+        call_args = mocks['execution_tracker'].update_metadata.call_args
+        assert call_args[0][1]['requirements'] == 'Build a portfolio website with dark theme'

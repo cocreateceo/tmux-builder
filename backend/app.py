@@ -49,7 +49,8 @@ def create_user():
             "email": string,
             "phone": string,
             "host_provider": string (aws|azure),
-            "site_type": string (static|dynamic)
+            "site_type": string (static|dynamic),
+            "requirements": string (optional) - User's site requirements
         }
 
     Returns:
@@ -70,6 +71,7 @@ def create_user():
     phone = data.get("phone")
     host_provider = data.get("host_provider")
     site_type = data.get("site_type")
+    requirements = data.get("requirements", "")
 
     # Validate host_provider
     if host_provider not in VALID_HOST_PROVIDERS:
@@ -105,6 +107,13 @@ def create_user():
         user_id=user_id,
         session_id=session_id
     )
+
+    # Store requirements and config in execution metadata
+    execution_tracker.update_metadata(execution_id, {
+        "requirements": requirements,
+        "host_provider": host_provider,
+        "site_type": site_type
+    })
 
     # Inject agents and skills
     session_path = session_creator.get_session_path(user_id, session_id)

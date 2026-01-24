@@ -1,0 +1,32 @@
+{
+  "rules": [
+    {
+      "match": {"host_provider": "aws", "site_type": "static"},
+      "inject": {
+        "agents": ["deployers/aws-s3-static", "testers/*", "utilities/cache-invalidator"],
+        "skills": ["aws/s3-upload", "aws/cloudfront-create", "aws/cloudfront-invalidate", "testing/*"]
+      }
+    },
+    {
+      "match": {"host_provider": "aws", "site_type": "dynamic"},
+      "inject": {
+        "agents": ["deployers/aws-elastic-beanstalk", "testers/*", "utilities/cache-invalidator", "utilities/log-analyzer"],
+        "skills": ["aws/eb-deploy", "aws/rds-configure", "aws/elasticache-setup", "testing/*"]
+      }
+    },
+    {
+      "match": {"host_provider": "azure", "site_type": "static"},
+      "inject": {
+        "agents": ["deployers/azure-blob-static", "testers/*", "utilities/cache-invalidator"],
+        "skills": ["azure/blob-upload", "azure/cdn-create", "azure/cdn-purge", "testing/*"]
+      }
+    },
+    {
+      "match": {"host_provider": "azure", "site_type": "dynamic"},
+      "inject": {
+        "agents": ["deployers/azure-app-service", "testers/*", "utilities/cache-invalidator", "utilities/log-analyzer"],
+        "skills": ["azure/app-service-deploy", "azure/sql-configure", "azure/redis-setup", "testing/*"]
+      }
+    }
+  ]
+}

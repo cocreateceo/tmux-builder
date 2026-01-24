@@ -181,3 +181,67 @@ class TestPipelineSteps:
             "e2e_tests"
         ]
         assert step_names == expected_names
+
+
+def test_update_step_sets_step_name(tmp_path, monkeypatch):
+    """Test update_step sets current_step_name."""
+    import execution_tracker
+    monkeypatch.setattr(execution_tracker, 'EXECUTIONS_DIR', tmp_path)
+
+    tracker = ExecutionTracker()
+    exec_id = tracker.create_execution("user123", "sess456")
+
+    tracker.update_step(exec_id, 3, "gather_requirements", "running")
+
+    status = tracker.get_status(exec_id)
+    assert status["current_step"] == 3
+    assert status["current_step_name"] == "gather_requirements"
+    assert status["status"] == "running"
+
+
+def test_set_deployed_url(tmp_path, monkeypatch):
+    """Test set_deployed_url stores URL and timestamp."""
+    import execution_tracker
+    monkeypatch.setattr(execution_tracker, 'EXECUTIONS_DIR', tmp_path)
+
+    tracker = ExecutionTracker()
+    exec_id = tracker.create_execution("user123", "sess456")
+
+    tracker.set_deployed_url(exec_id, "https://example.cloudfront.net")
+
+    status = tracker.get_status(exec_id)
+    assert status["deployed_url"] == "https://example.cloudfront.net"
+    assert "last_deployed" in status
+
+
+def test_get_progress_returns_summary(tmp_path, monkeypatch):
+    """Test get_progress returns progress dict."""
+    import execution_tracker
+    monkeypatch.setattr(execution_tracker, 'EXECUTIONS_DIR', tmp_path)
+
+    tracker = ExecutionTracker()
+    exec_id = tracker.create_execution("user123", "sess456")
+    tracker.update_step(exec_id, 5, "generate_code", "running")
+
+    progress = tracker.get_progress(exec_id)
+
+    assert progress["execution_id"] == exec_id
+    assert progress["current_step"] == 5
+    assert progress["current_step_name"] == "generate_code"
+    assert progress["total_steps"] == 9
+    assert progress["percent_complete"] == 55  # 5/9 * 100 = 55%
+
+
+def test_update_metadata_stores_requirements(tmp_path, monkeypatch):
+    """Test update_metadata stores arbitrary data."""
+    import execution_tracker
+    monkeypatch.setattr(execution_tracker, 'EXECUTIONS_DIR', tmp_path)
+
+    tracker = ExecutionTracker()
+    exec_id = tracker.create_execution("user123", "sess456")
+
+    tracker.update_metadata(exec_id, {"requirements": "Build a blog", "host_provider": "aws"})
+
+    status = tracker.get_status(exec_id)
+    assert status["requirements"] == "Build a blog"
+    assert status["host_provider"] == "aws"

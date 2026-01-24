@@ -199,3 +199,90 @@ class ExecutionTracker:
         state["status"] = "failed"
         state["updated_at"] = self._get_timestamp()
         self._save_execution(execution_id, state)
+
+    def update_step(
+        self,
+        execution_id: str,
+        step: int,
+        step_name: str,
+        status: str = "running"
+    ) -> None:
+        """
+        Update current step with name and status.
+
+        Args:
+            execution_id: Execution identifier
+            step: Pipeline step number
+            step_name: Pipeline step name
+            status: New status (default: running)
+        """
+        state = self._load_execution(execution_id)
+        if not state:
+            return
+
+        state["current_step"] = step
+        state["current_step_name"] = step_name
+        state["status"] = status
+        state["updated_at"] = self._get_timestamp()
+        self._save_execution(execution_id, state)
+
+    def set_deployed_url(self, execution_id: str, url: str) -> None:
+        """
+        Store deployed URL after successful deployment.
+
+        Args:
+            execution_id: Execution identifier
+            url: Deployed site URL
+        """
+        state = self._load_execution(execution_id)
+        if not state:
+            return
+
+        state["deployed_url"] = url
+        state["last_deployed"] = self._get_timestamp()
+        state["updated_at"] = self._get_timestamp()
+        self._save_execution(execution_id, state)
+
+    def get_progress(self, execution_id: str) -> Optional[dict]:
+        """
+        Return progress summary for frontend.
+
+        Args:
+            execution_id: Execution identifier
+
+        Returns:
+            Progress dict with percent_complete, or None if not found
+        """
+        state = self._load_execution(execution_id)
+        if not state:
+            return None
+
+        current_step = state.get("current_step", 0)
+        total_steps = state.get("total_steps", len(PIPELINE_STEPS))
+
+        return {
+            "execution_id": execution_id,
+            "status": state.get("status", "pending"),
+            "current_step": current_step,
+            "current_step_name": state.get("current_step_name", ""),
+            "total_steps": total_steps,
+            "percent_complete": int((current_step / total_steps) * 100),
+            "deployed_url": state.get("deployed_url"),
+            "error": state.get("error"),
+        }
+
+    def update_metadata(self, execution_id: str, metadata: dict) -> None:
+        """
+        Update execution with arbitrary metadata.
+
+        Args:
+            execution_id: Execution identifier
+            metadata: Dict of key-value pairs to merge into state
+        """
+        state = self._load_execution(execution_id)
+        if not state:
+            return
+
+        state.update(metadata)
+        state["updated_at"] = self._get_timestamp()
+        self._save_execution(execution_id, state)

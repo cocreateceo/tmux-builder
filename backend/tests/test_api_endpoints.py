@@ -360,3 +360,37 @@ class TestChatEndpoint:
 
         assert response.status_code == 500
         assert 'Failed to send' in response.get_json()['error']
+
+
+class TestRedeployEndpoint:
+    """Tests for POST /api/redeploy/<execution_id>"""
+
+    def test_redeploy_endpoint_resets_to_step_6(self, client):
+        """Test POST /api/redeploy resets execution to deploy step."""
+        test_client, mocks = client
+
+        mocks['execution_tracker'].get_status.return_value = {
+            'execution_id': 'user123_sess456',
+            'status': 'completed'
+        }
+
+        response = test_client.post('/api/redeploy/user123_sess456')
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['status'] == 'redeploying'
+
+        # Verify status was reset to running at step 6
+        mocks['execution_tracker'].update_step.assert_called_with(
+            'user123_sess456', 6, 'deploy', 'running'
+        )
+
+    def test_redeploy_endpoint_404_for_missing_execution(self, client):
+        """Test POST /api/redeploy returns 404 for missing execution."""
+        test_client, mocks = client
+
+        mocks['execution_tracker'].get_status.return_value = None
+
+        response = test_client.post('/api/redeploy/nonexistent_exec')
+
+        assert response.status_code == 404

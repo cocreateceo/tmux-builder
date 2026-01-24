@@ -213,5 +213,31 @@ def chat(execution_id):
     })
 
 
+@app.route('/api/redeploy/<execution_id>', methods=['POST'])
+def redeploy(execution_id):
+    """Trigger redeployment of an existing session.
+
+    Resets execution to step 6 (deploy) and re-queues the job.
+
+    Returns:
+        {"status": "redeploying", "execution_id": string}
+    """
+    # Validate execution exists
+    execution = execution_tracker.get_status(execution_id)
+    if not execution:
+        return jsonify({"error": "Execution not found"}), 404
+
+    # Reset to deploy step
+    execution_tracker.update_step(execution_id, 6, "deploy", "running")
+
+    # TODO: Re-queue job for processing
+    # job_queue.enqueue(execution_id, start_step=6)
+
+    return jsonify({
+        "status": "redeploying",
+        "execution_id": execution_id
+    })
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True)

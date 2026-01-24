@@ -14,11 +14,6 @@ dist/
 .cache/
 *.log
 
-# Sessions and runtime data
-sessions/
-*.jsonl
-*.marker
-
 # IDE
 .vscode/
 .idea/
@@ -32,3 +27,6 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Execution files (keep directory via .gitkeep)
+executions/*.json

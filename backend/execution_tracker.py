@@ -12,11 +12,13 @@ EXECUTIONS_DIR = Path(__file__).parent.parent / "executions"
 PIPELINE_STEPS = [
     {"id": 1, "name": "create_user", "description": "Create GUID folder & registry entry"},
     {"id": 2, "name": "create_session", "description": "Initialize session folder structure"},
-    {"id": 3, "name": "generate_site", "description": "Claude generates initial website code"},
-    {"id": 4, "name": "deploy", "description": "Deploy to AWS/Azure"},
-    {"id": 5, "name": "health_check", "description": "Verify URL returns 200 OK"},
-    {"id": 6, "name": "screenshot", "description": "Capture visual snapshot"},
-    {"id": 7, "name": "e2e_tests", "description": "Generate & run E2E tests"},
+    {"id": 3, "name": "gather_requirements", "description": "Parse & structure requirements from POST body"},
+    {"id": 4, "name": "create_plan", "description": "Claude creates implementation plan"},
+    {"id": 5, "name": "generate_code", "description": "Claude writes code to source/"},
+    {"id": 6, "name": "deploy", "description": "Deploy to AWS/Azure"},
+    {"id": 7, "name": "health_check", "description": "Verify URL returns 200 OK"},
+    {"id": 8, "name": "screenshot", "description": "Capture visual snapshot"},
+    {"id": 9, "name": "e2e_tests", "description": "Generate & run E2E tests"},
 ]
 
 

@@ -41,7 +41,7 @@ class TestExecutionTracker:
             assert state["session_id"] == "sess_xyz"
             assert state["status"] == "pending"
             assert state["current_step"] == 0
-            assert state["total_steps"] == 7
+            assert state["total_steps"] == 9
             assert "created_at" in state
             assert "updated_at" in state
             assert state["logs"] == []
@@ -148,9 +148,18 @@ class TestExecutionTracker:
 class TestPipelineSteps:
     """Test pipeline steps constant."""
 
+    def test_pipeline_steps_has_nine_steps(self):
+        """Verify pipeline has all 9 steps."""
+        from execution_tracker import PIPELINE_STEPS
+        assert len(PIPELINE_STEPS) == 9
+        step_names = [s["name"] for s in PIPELINE_STEPS]
+        assert "gather_requirements" in step_names
+        assert "create_plan" in step_names
+        assert "generate_code" in step_names
+
     def test_pipeline_steps_structure(self):
         """Pipeline steps should have correct count and structure."""
-        assert len(PIPELINE_STEPS) == 7
+        assert len(PIPELINE_STEPS) == 9
 
         # Each step should have id, name, description
         for step in PIPELINE_STEPS:
@@ -163,7 +172,9 @@ class TestPipelineSteps:
         expected_names = [
             "create_user",
             "create_session",
-            "generate_site",
+            "gather_requirements",
+            "create_plan",
+            "generate_code",
             "deploy",
             "health_check",
             "screenshot",

@@ -11,6 +11,22 @@ tmux-builder is a multi-user tmux session management system with SmartBuild patt
 - **SmartBuild**: File-based I/O pattern for LLM-friendly operations
 - **Multi-User**: GUID-based user isolation with cloud deployment
 
+---
+
+## ⚠️ IMPORTANT: Project Guidelines
+
+**Before starting ANY new feature or project, read:** [`docs/PROJECT_GUIDELINES.md`](docs/PROJECT_GUIDELINES.md)
+
+Contains:
+- Mandatory workflow (must follow for every project)
+- Plan validation checklist
+- Common pitfalls and prevention
+- Walking skeleton requirements
+- Integration verification checklist
+- Environment notes and patterns
+
+---
+
 ## Core Skills (MANDATORY)
 
 **Every new project/feature MUST use these skills in order:**

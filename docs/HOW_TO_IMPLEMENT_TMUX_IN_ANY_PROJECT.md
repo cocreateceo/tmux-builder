@@ -12,14 +12,18 @@ Author: Based on SmartBuild (https://github.com/GopiSunware/SmartBuild)
 
 1. [Introduction](#introduction)
 2. [Core Concept: File-Based I/O](#core-concept-file-based-io)
-3. [Prerequisites](#prerequisites)
-4. [Architecture Overview](#architecture-overview)
-5. [Step-by-Step Implementation](#step-by-step-implementation)
-6. [Critical Patterns](#critical-patterns)
-7. [Common Pitfalls](#common-pitfalls)
-8. [Testing and Validation](#testing-and-validation)
-9. [Production Considerations](#production-considerations)
-10. [Complete Code Examples](#complete-code-examples)
+3. [Application Startup Sequence](#application-startup-sequence)
+4. [Session Initialization Flow](#session-initialization-flow)
+5. [Session Recovery](#session-recovery)
+6. [Background Monitor Setup](#background-monitor-setup)
+7. [Prerequisites](#prerequisites)
+8. [Architecture Overview](#architecture-overview)
+9. [Step-by-Step Implementation](#step-by-step-implementation)
+10. [Critical Patterns](#critical-patterns)
+11. [Common Pitfalls](#common-pitfalls)
+12. [Testing and Validation](#testing-and-validation)
+13. [Production Considerations](#production-considerations)
+14. [Complete Code Examples](#complete-code-examples)
 
 ---
 
@@ -109,6 +113,515 @@ tmux send-keys -l "Please read prompt.txt"
 │     result = output_file.read_text()                    │
 │                                                          │
 └─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Application Startup Sequence
+
+When your application starts, follow this exact sequence:
+
+### Step 1: Directory Structure Initialization
+
+```
+your-app/
+├── backend/
+│   ├── config.py
+│   ├── job_queue_monitor.py      # Background process
+│   ├── session_lifecycle.py       # Session management
+│   └── ...
+├── sessions/
+│   ├── active/                    # Active sessions live here
+│   │   └── <session_id>/
+│   │       ├── metadata.json      # Session metadata
+│   │       ├── job_queue.json     # Job queue
+│   │       ├── prompts/           # Prompt files
+│   │       ├── output/            # Output files
+│   │       ├── logs/              # Session logs
+│   │       └── state/             # State tracking
+│   │           └── health.json    # Health status
+│   └── deleted/                   # Deleted sessions (archive)
+└── .claude/
+    └── agents/                    # Agent templates (optional)
+        ├── cost-analyzer.md
+        └── code-generator.md
+```
+
+### Step 2: Spawn Background Monitor
+
+```python
+# On application startup
+import subprocess
+import sys
+from pathlib import Path
+
+def start_background_monitor():
+    """Start the job queue monitor as a background process."""
+
+    # Check if already running
+    monitor_pid_file = Path("monitor.pid")
+    if monitor_pid_file.exists():
+        pid = int(monitor_pid_file.read_text())
+        if is_process_running(pid):
+            print(f"Monitor already running (PID {pid})")
+            return pid
+
+    # Start monitor
+    process = subprocess.Popen(
+        [sys.executable, "job_queue_monitor.py"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=Path(__file__).parent
+    )
+
+    # Save PID
+    monitor_pid_file.write_text(str(process.pid))
+
+    print(f"Started monitor (PID {process.pid})")
+    return process.pid
+```
+
+### Step 3: Validate Configuration
+
+```python
+import shutil
+import subprocess
+
+def startup_validation():
+    """Validate all dependencies on startup."""
+
+    # Check tmux
+    if not shutil.which('tmux'):
+        raise RuntimeError("tmux not installed")
+
+    # Check tmux version
+    result = subprocess.run(['tmux', '-V'], capture_output=True, text=True)
+    version = result.stdout.strip()  # e.g., "tmux 3.4"
+    print(f"✓ tmux found: {version}")
+
+    # Check Claude CLI
+    if not shutil.which('claude'):
+        raise RuntimeError("Claude CLI not installed")
+
+    result = subprocess.run(['claude', '--version'], capture_output=True, text=True)
+    print(f"✓ Claude CLI found: {result.stdout.strip()}")
+
+    # Create directories
+    ACTIVE_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    DELETED_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+    print("✓ Directories initialized")
+```
+
+---
+
+## Session Initialization Flow
+
+When creating a new session, follow this complete sequence:
+
+### Phase 1: Create Folder Structure
+
+```python
+def initialize_session(session_id: str) -> Path:
+    """
+    Phase 1: Create complete folder structure.
+
+    This happens BEFORE any TMUX operations.
+    """
+    session_path = ACTIVE_SESSIONS_DIR / session_id
+
+    # Create all directories
+    session_path.mkdir(parents=True, exist_ok=True)
+    (session_path / "prompts").mkdir(exist_ok=True)
+    (session_path / "output").mkdir(exist_ok=True)
+    (session_path / "logs").mkdir(exist_ok=True)
+    (session_path / "state").mkdir(exist_ok=True)
+
+    # Create metadata.json
+    metadata = {
+        "session_id": session_id,
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "state": "created",
+        "tmux_session": None,
+        "version": "1.0"
+    }
+    with open(session_path / "metadata.json", 'w') as f:
+        json.dump(metadata, f, indent=2)
+
+    # Create empty job queue
+    with open(session_path / "job_queue.json", 'w') as f:
+        json.dump([], f)
+
+    # Create initial health status
+    health = {
+        "state": "created",
+        "tmux_active": False,
+        "claude_ready": False,
+        "last_probe": None,
+        "error_count": 0
+    }
+    with open(session_path / "state" / "health.json", 'w') as f:
+        json.dump(health, f, indent=2)
+
+    return session_path
+```
+
+### Phase 2: Create TMUX Session with Claude
+
+```python
+def create_tmux_session(session_id: str, session_path: Path) -> bool:
+    """
+    Phase 2: Create TMUX session and start Claude.
+
+    Complete initialization sequence with exact timing.
+    """
+    tmux_name = f"app_{session_id}"
+
+    # Step 1: Create TMUX session
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", tmux_name],
+        check=True
+    )
+
+    # Step 2: CD to session directory
+    send_command(tmux_name, f"cd {session_path}")
+    time.sleep(0.5)  # Wait for cd
+
+    # Step 3: Start Claude CLI
+    send_command(tmux_name, "claude --dangerously-skip-permissions")
+    time.sleep(3.0)  # CRITICAL: Claude needs 3s to initialize
+
+    # Step 4: Bypass initial prompts (send 3 Enter keys)
+    for _ in range(3):
+        subprocess.run(["tmux", "send-keys", "-t", tmux_name, "Enter"])
+        time.sleep(0.5)
+
+    return True
+```
+
+### Phase 3: Health Handshake
+
+```python
+def perform_health_handshake(
+    tmux_name: str,
+    max_retries: int = 3
+) -> bool:
+    """
+    Phase 3: Verify Claude is ready with probe/response pattern.
+
+    The handshake confirms Claude is initialized and responding.
+    """
+    for attempt in range(max_retries):
+        # Generate unique probe marker
+        probe_id = datetime.now().strftime("%H%M%S%f")
+        probe_marker = f"[HEALTH_PROBE_{probe_id}]"
+
+        # Send probe command
+        probe_cmd = f"echo '{probe_marker} Claude ready'"
+        send_command(tmux_name, probe_cmd)
+        time.sleep(2.0)  # Wait for response
+
+        # Capture and check output
+        output = capture_output(tmux_name)
+
+        if probe_marker in output and "Claude ready" in output:
+            print(f"✓ Health handshake successful (attempt {attempt + 1})")
+            return True
+
+        print(f"⚠ Probe not found, retrying... ({attempt + 1}/{max_retries})")
+        time.sleep(2.0)
+
+    print("✗ Health handshake failed after all retries")
+    return False
+
+def send_command(session: str, cmd: str):
+    """Send command with proper timing."""
+    subprocess.run(["tmux", "send-keys", "-t", session, "-l", cmd])
+    time.sleep(0.3)  # Buffer processing
+    subprocess.run(["tmux", "send-keys", "-t", session, "Enter"])
+    time.sleep(1.2)  # Command execution
+
+def capture_output(session: str, lines: int = 50) -> str:
+    """Capture recent output from TMUX pane."""
+    result = subprocess.run(
+        ["tmux", "capture-pane", "-t", session, "-p", "-S", f"-{lines}"],
+        capture_output=True,
+        text=True
+    )
+    return result.stdout
+```
+
+### Complete Initialization Example
+
+```python
+def full_session_initialization(session_id: str) -> bool:
+    """
+    Complete session initialization with all phases.
+
+    Returns True if session is fully initialized and healthy.
+    """
+    print(f"Initializing session: {session_id}")
+
+    # Phase 1: Folder structure
+    print("Phase 1: Creating folder structure...")
+    session_path = initialize_session(session_id)
+    update_health(session_id, {"state": "folder_created"})
+
+    # Phase 2: TMUX + Claude
+    print("Phase 2: Starting TMUX session with Claude...")
+    tmux_name = f"app_{session_id}"
+
+    if not create_tmux_session(session_id, session_path):
+        update_health(session_id, {"state": "error", "error": "TMUX creation failed"})
+        return False
+
+    update_health(session_id, {"state": "tmux_started", "tmux_active": True})
+
+    # Phase 3: Health handshake
+    print("Phase 3: Performing health handshake...")
+
+    if not perform_health_handshake(tmux_name):
+        update_health(session_id, {"state": "error", "error": "Handshake failed"})
+        kill_session(tmux_name)
+        return False
+
+    update_health(session_id, {
+        "state": "ready",
+        "claude_ready": True,
+        "last_probe": datetime.utcnow().isoformat() + "Z"
+    })
+
+    # Update metadata
+    update_metadata(session_id, {"tmux_session": tmux_name, "state": "ready"})
+
+    print(f"✓ Session {session_id} fully initialized and healthy")
+    return True
+```
+
+---
+
+## Session Recovery
+
+Handle crashed or lost sessions gracefully.
+
+### Detecting Lost Sessions
+
+```python
+def check_session_health(session_id: str) -> dict:
+    """
+    Check if a session is still healthy.
+
+    Returns health status with recovery recommendations.
+    """
+    metadata_path = ACTIVE_SESSIONS_DIR / session_id / "metadata.json"
+
+    if not metadata_path.exists():
+        return {"healthy": False, "action": "recreate", "reason": "Session not found"}
+
+    metadata = json.loads(metadata_path.read_text())
+    tmux_name = metadata.get("tmux_session")
+
+    if not tmux_name:
+        return {"healthy": False, "action": "initialize", "reason": "TMUX not started"}
+
+    # Check TMUX session exists
+    result = subprocess.run(
+        ["tmux", "has-session", "-t", tmux_name],
+        capture_output=True
+    )
+
+    if result.returncode != 0:
+        return {
+            "healthy": False,
+            "action": "restart_tmux",
+            "reason": "TMUX session lost"
+        }
+
+    # Perform probe
+    if not perform_health_handshake(tmux_name, max_retries=1):
+        return {
+            "healthy": False,
+            "action": "restart_claude",
+            "reason": "Claude not responding"
+        }
+
+    return {"healthy": True, "action": None, "reason": None}
+```
+
+### Recovery Actions
+
+```python
+def recover_session(session_id: str) -> bool:
+    """
+    Attempt to recover a session based on its health status.
+    """
+    health = check_session_health(session_id)
+
+    if health["healthy"]:
+        return True
+
+    action = health["action"]
+    print(f"Recovering session {session_id}: {action}")
+
+    if action == "recreate":
+        # Full recreation
+        return full_session_initialization(session_id)
+
+    elif action == "initialize":
+        # Just need TMUX setup
+        session_path = ACTIVE_SESSIONS_DIR / session_id
+        return create_tmux_session(session_id, session_path)
+
+    elif action == "restart_tmux":
+        # Kill and restart TMUX
+        metadata = load_metadata(session_id)
+        kill_session(metadata.get("tmux_session", ""))
+        session_path = ACTIVE_SESSIONS_DIR / session_id
+        return create_tmux_session(session_id, session_path)
+
+    elif action == "restart_claude":
+        # Just restart Claude in existing TMUX
+        metadata = load_metadata(session_id)
+        tmux_name = metadata["tmux_session"]
+
+        # Send Ctrl-C to kill current process
+        subprocess.run(["tmux", "send-keys", "-t", tmux_name, "C-c"])
+        time.sleep(0.5)
+
+        # Restart Claude
+        send_command(tmux_name, "claude --dangerously-skip-permissions")
+        time.sleep(3.0)
+
+        return perform_health_handshake(tmux_name)
+
+    return False
+```
+
+---
+
+## Background Monitor Setup
+
+Run the job queue monitor as a separate process.
+
+### Standalone Monitor Script
+
+```python
+#!/usr/bin/env python3
+"""
+job_queue_monitor.py - Background job queue monitor
+
+Run this as a separate process to handle job execution.
+
+Usage:
+    python job_queue_monitor.py              # Run in foreground
+    python job_queue_monitor.py &            # Run in background
+    nohup python job_queue_monitor.py &      # Run with nohup
+"""
+
+import time
+import json
+import logging
+from pathlib import Path
+from datetime import datetime
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler('monitor.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Configuration
+POLL_INTERVAL = 2.0        # Check queues every 2 seconds
+MAX_CONCURRENT = 4         # Max jobs running at once
+COMPLETION_CHECK = 5.0     # Check completion every 5 seconds
+
+
+def main_loop():
+    """Main monitor loop."""
+    logger.info("Job Queue Monitor started")
+    logger.info(f"Poll interval: {POLL_INTERVAL}s, Max concurrent: {MAX_CONCURRENT}")
+
+    while True:
+        try:
+            # Find all active sessions
+            for session_dir in ACTIVE_SESSIONS_DIR.iterdir():
+                if not session_dir.is_dir():
+                    continue
+
+                process_session(session_dir.name)
+
+        except Exception as e:
+            logger.error(f"Monitor cycle error: {e}")
+
+        time.sleep(POLL_INTERVAL)
+
+
+def process_session(session_id: str):
+    """Process jobs for a single session."""
+    queue_path = ACTIVE_SESSIONS_DIR / session_id / "job_queue.json"
+
+    if not queue_path.exists():
+        return
+
+    queue = json.loads(queue_path.read_text())
+
+    # Count running jobs
+    running = [j for j in queue if j["status"] == "running"]
+    pending = [j for j in queue if j["status"] == "pending"]
+
+    # Check running jobs for completion
+    for job in running:
+        check_job_completion(session_id, job)
+
+    # Start pending jobs if slots available
+    available_slots = MAX_CONCURRENT - len(running)
+
+    for job in pending[:available_slots]:
+        start_job(session_id, job)
+
+
+if __name__ == "__main__":
+    try:
+        main_loop()
+    except KeyboardInterrupt:
+        logger.info("Monitor stopped by user")
+```
+
+### Systemd Service (Production)
+
+```ini
+# /etc/systemd/system/job-monitor.service
+[Unit]
+Description=Job Queue Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/path/to/your-app/backend
+ExecStart=/usr/bin/python3 job_queue_monitor.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Docker Compose (Alternative)
+
+```yaml
+services:
+  monitor:
+    build: ./backend
+    command: python job_queue_monitor.py
+    volumes:
+      - ./sessions:/app/sessions
+    restart: always
 ```
 
 ---

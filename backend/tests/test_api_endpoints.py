@@ -394,3 +394,34 @@ class TestRedeployEndpoint:
         response = test_client.post('/api/redeploy/nonexistent_exec')
 
         assert response.status_code == 404
+
+
+class TestChatHistoryEndpoint:
+    """Tests for GET /api/chat/<execution_id>/history"""
+
+    def test_chat_history_returns_tmux_output(self, client):
+        """Test GET /api/chat/<id>/history returns tmux pane output."""
+        test_client, mocks = client
+
+        mocks['execution_tracker'].get_status.return_value = {
+            'execution_id': 'user123_sess456',
+            'status': 'running'
+        }
+        mocks['tmux_helper'].capture_pane_output.return_value = "Claude: Hello!\nUser: Hi there"
+
+        response = test_client.get('/api/chat/user123_sess456/history')
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert 'output' in data
+        assert 'Claude: Hello!' in data['output']
+
+    def test_chat_history_404_for_missing_execution(self, client):
+        """Test GET /api/chat/<id>/history returns 404 for missing execution."""
+        test_client, mocks = client
+
+        mocks['execution_tracker'].get_status.return_value = None
+
+        response = test_client.get('/api/chat/nonexistent_exec/history')
+
+        assert response.status_code == 404

@@ -239,5 +239,26 @@ def redeploy(execution_id):
     })
 
 
+@app.route('/api/chat/<execution_id>/history', methods=['GET'])
+def chat_history(execution_id):
+    """Get recent tmux pane output for display.
+
+    Returns:
+        {"output": string, "execution_id": string}
+    """
+    # Validate execution exists
+    execution = execution_tracker.get_status(execution_id)
+    if not execution:
+        return jsonify({"error": "Execution not found"}), 404
+
+    # Capture tmux output
+    output = tmux_helper.capture_pane_output(f"exec_{execution_id}", lines=100)
+
+    return jsonify({
+        "output": output,
+        "execution_id": execution_id
+    })
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True)

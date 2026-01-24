@@ -8,6 +8,7 @@ Uses the sunwaretech AWS profile for authentication.
 import time
 import logging
 import boto3
+from botocore.exceptions import ClientError
 from typing import Dict, List, Optional, Any
 
 from cloud_config import CloudConfig
@@ -19,6 +20,7 @@ DEFAULT_AMI = 'ami-0c02fb55956c7d316'  # Amazon Linux 2023 (us-east-1)
 DEFAULT_INSTANCE_TYPE = 't3.micro'
 DEFAULT_KEY_NAME = 'tmux-builder-key'
 DEFAULT_IAM_ROLE = 'tmux-builder-ec2-role'
+SSM_AGENT_STARTUP_DELAY = 30  # Seconds to wait for SSM agent to start
 
 
 class AWSEC2Deployer:
@@ -86,30 +88,37 @@ class AWSEC2Deployer:
             - instance_id: EC2 instance ID
             - provider: 'aws'
             - type: 'ec2'
+
+        Raises:
+            ClientError: If AWS API calls fail
         """
         logger.info(f"Deploying {site_type} app from {source_path}")
 
-        # Launch or get existing instance
-        instance_id = self._get_or_create_instance()
+        try:
+            # Launch or get existing instance
+            instance_id = self._get_or_create_instance()
 
-        # Wait for instance to be ready
-        self._wait_for_instance(instance_id)
+            # Wait for instance to be ready
+            self._wait_for_instance(instance_id)
 
-        # Upload application code
-        self._upload_code(instance_id, source_path)
+            # Upload application code
+            self._upload_code(instance_id, source_path)
 
-        # Run setup and start commands
-        self._run_setup_commands(instance_id, site_type)
+            # Run setup and start commands
+            self._run_setup_commands(instance_id, site_type)
 
-        # Get public IP for URL
-        public_ip = self._get_public_ip(instance_id)
+            # Get public IP for URL
+            public_ip = self._get_public_ip(instance_id)
 
-        return {
-            "url": f"http://{public_ip}",
-            "instance_id": instance_id,
-            "provider": "aws",
-            "type": "ec2"
-        }
+            return {
+                "url": f"http://{public_ip}",
+                "instance_id": instance_id,
+                "provider": "aws",
+                "type": "ec2"
+            }
+        except ClientError as e:
+            logger.error(f"AWS API error during deployment: {e}")
+            raise
 
     def terminate(self, instance_id: str) -> Dict[str, Any]:
         """Terminate an EC2 instance.
@@ -218,7 +227,7 @@ class AWSEC2Deployer:
         )
 
         # Additional wait for SSM agent and services to start
-        time.sleep(30)
+        time.sleep(SSM_AGENT_STARTUP_DELAY)
         logger.info(f"Instance {instance_id} is running")
 
     def _upload_code(self, instance_id: str, source_path: str) -> None:
@@ -231,9 +240,9 @@ class AWSEC2Deployer:
             source_path: Path to source code directory
         """
         logger.info(f"Uploading code to {instance_id} from {source_path}")
-        # Simplified implementation - would use S3 as intermediary
-        # in production: zip source -> upload to S3 -> SSM command to download
-        pass
+        # Would use S3 as intermediary in production:
+        # zip source -> upload to S3 -> SSM command to download
+        raise NotImplementedError("Code upload via S3 not yet implemented")
 
     def _run_setup_commands(self, instance_id: str, site_type: str) -> None:
         """Run setup commands on instance via SSM.

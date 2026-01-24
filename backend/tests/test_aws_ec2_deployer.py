@@ -7,9 +7,22 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Mock boto3 before importing aws_ec2_deployer
+# Mock boto3 and botocore before importing aws_ec2_deployer
 mock_boto3 = MagicMock()
 sys.modules["boto3"] = mock_boto3
+
+# Mock botocore.exceptions with a real exception class for testing
+mock_botocore = MagicMock()
+mock_botocore_exceptions = MagicMock()
+
+class MockClientError(Exception):
+    """Mock ClientError for testing."""
+    pass
+
+mock_botocore_exceptions.ClientError = MockClientError
+mock_botocore.exceptions = mock_botocore_exceptions
+sys.modules["botocore"] = mock_botocore
+sys.modules["botocore.exceptions"] = mock_botocore_exceptions
 
 from cloud_config import CloudConfig
 

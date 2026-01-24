@@ -101,8 +101,33 @@ class InjectionEngine:
 
         return copied_count
 
+    def _inject_core_skills(self, claude_dir: Path) -> int:
+        """Always inject core methodology skills to every session.
+
+        Core skills are MANDATORY for all sessions:
+        - core/project-inception - Project startup methodology
+        - core/plan-validation - Plan verification before execution
+        - core/integration-verification - E2E verification before completion
+
+        Args:
+            claude_dir: Path to session's .claude directory
+
+        Returns:
+            Number of core skills copied.
+        """
+        core_skills = [
+            "core/project-inception",
+            "core/plan-validation",
+            "core/integration-verification"
+        ]
+        return self._copy_files(core_skills, "skills", claude_dir)
+
     def inject(self, host_provider: str, site_type: str, session_dir: str) -> Dict[str, int]:
         """Inject agents and skills into session directory based on matching rule.
+
+        Always injects:
+        1. Core methodology skills (project-inception, plan-validation, integration-verification)
+        2. Provider/type-specific agents and skills from injection_rules.json
 
         Args:
             host_provider: Cloud provider (aws, azure, etc.)
@@ -110,17 +135,22 @@ class InjectionEngine:
             session_dir: Path to session directory
 
         Returns:
-            Dict with 'agents_copied' and 'skills_copied' counts.
+            Dict with 'agents_copied', 'skills_copied', and 'core_skills_copied' counts.
         """
         rule = self.match_rule(host_provider, site_type)
         session_path = Path(session_dir)
         claude_dir = session_path / ".claude"
         claude_dir.mkdir(parents=True, exist_ok=True)
 
+        # Always inject core methodology skills first
+        core_skills_copied = self._inject_core_skills(claude_dir)
+
+        # Inject provider/type-specific agents and skills
         agents_copied = self._copy_files(rule["agents"], "agents", claude_dir)
         skills_copied = self._copy_files(rule["skills"], "skills", claude_dir)
 
         return {
             "agents_copied": agents_copied,
-            "skills_copied": skills_copied
+            "skills_copied": skills_copied,
+            "core_skills_copied": core_skills_copied
         }

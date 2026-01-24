@@ -1,14 +1,21 @@
 # Tmux Builder
 
-A simplified chat interface that communicates with Claude AI through persistent tmux sessions, inspired by SmartDeploy/Builder-CLI.
+A simplified chat interface that communicates with Claude AI through persistent tmux sessions, featuring the SmartBuild pattern for AI-driven workflows.
+
+## Quick Links
+
+- [Getting Started](docs/QUICKSTART.md)
+- [Architecture Details](docs/ARCHITECTURE.md)
+- [SmartBuild Pattern](docs/SMARTBUILD_ARCHITECTURE_ANALYSIS.md)
+- [Implementation Guide](docs/HOW_TO_IMPLEMENT_TMUX_IN_ANY_PROJECT.md)
 
 ## Architecture
 
 - **Frontend**: React + Vite + Tailwind CSS
-- **Backend**: FastAPI (Python)
+- **Backend**: Flask (Python)
+- **SmartBuild**: File-based I/O pattern for LLM-friendly operations
 - **Session Management**: tmux
 - **AI Engine**: Claude CLI
-- **Persistence**: JSONL (JSON Lines)
 
 ## How It Works
 
@@ -23,16 +30,17 @@ A simplified chat interface that communicates with Claude AI through persistent 
 
 ```
 tmux-builder/
-├── backend/              # Python FastAPI server
-│   ├── main.py          # REST API endpoints
-│   ├── session_controller.py  # Session orchestration
-│   ├── tmux_helper.py   # Low-level tmux operations
-│   └── config.py        # Configuration
+├── backend/              # Python Flask server
+│   ├── app.py           # REST API endpoints
+│   ├── smartbuild.py    # SmartBuild file-based operations
+│   └── test_smartbuild.py  # Test suite
 ├── frontend/            # React application
 │   └── src/
 │       ├── components/  # UI components
 │       └── services/    # API client
+├── docs/                # All project documentation
 └── sessions/            # Runtime storage (auto-created)
+    └── active/          # Active session data
 ```
 
 ## Setup
@@ -44,7 +52,7 @@ cd backend
 python -m venv venv
 source venv/bin/activate  # or venv\Scripts\activate on Windows
 pip install -r requirements.txt
-python main.py
+python app.py
 ```
 
 ### Frontend

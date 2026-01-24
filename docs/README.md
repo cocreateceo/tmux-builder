@@ -2,36 +2,69 @@
 
 This folder contains all project documentation for tmux-builder.
 
-## Getting Started
-- **[QUICKSTART.md](QUICKSTART.md)** - Quick setup and usage guide
-- **[SETUP.md](SETUP.md)** - Detailed installation instructions
+## Core Documentation
 
-## Architecture & Design
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture overview
-- **[SMARTBUILD_ARCHITECTURE_ANALYSIS.md](SMARTBUILD_ARCHITECTURE_ANALYSIS.md)** - Detailed SmartBuild pattern analysis
-- **[HOW_TO_IMPLEMENT_TMUX_IN_ANY_PROJECT.md](HOW_TO_IMPLEMENT_TMUX_IN_ANY_PROJECT.md)** - Integration guide for other projects
+| Document | Description |
+|----------|-------------|
+| [QUICKSTART.md](QUICKSTART.md) | Quick setup and usage guide |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture overview |
+| [SMARTBUILD_ARCHITECTURE_ANALYSIS.md](SMARTBUILD_ARCHITECTURE_ANALYSIS.md) | Detailed SmartBuild pattern analysis |
+| [PROJECT_GUIDELINES.md](PROJECT_GUIDELINES.md) | Development best practices and lessons learned |
 
-## Project Status
-- **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** - High-level project overview
-- **[PROJECT_STATUS.txt](PROJECT_STATUS.txt)** - Current status and progress
-- **[IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)** - Implementation details
-- **[TEST_VALIDATION_REPORT.md](TEST_VALIDATION_REPORT.md)** - Test results and validation
-- **[README_FINAL.md](README_FINAL.md)** - Final project documentation
+## Design & Implementation Plans
+
+Located in `plans/`:
+
+| Document | Description |
+|----------|-------------|
+| [functional-gaps-design.md](plans/2026-01-24-functional-gaps-design.md) | Design for multi-user cloud deployment |
+| [functional-gaps-implementation-plan.md](plans/2026-01-24-functional-gaps-implementation-plan.md) | 14-task implementation plan |
 
 ## Key Features
 
+### Multi-User Cloud Deployment
+
+tmux-builder supports multi-user deployments with:
+
+- **User Isolation**: GUID-based user folders with individual sessions
+- **Cloud Providers**: AWS (S3, CloudFront, EC2) and Azure (Blob, CDN, VMs)
+- **Deployment Types**: Static sites and dynamic applications (Node.js, Python)
+
+### 9-Step Pipeline
+
+1. Create user (GUID folder & registry)
+2. Create session (folder structure)
+3. Gather requirements (parse POST body)
+4. Create plan (Claude planning)
+5. Generate code (Claude coding)
+6. Deploy (AWS/Azure)
+7. Health check (verify 200 OK)
+8. Screenshot (Playwright capture)
+9. E2E tests (generate & run)
+
 ### SmartBuild Pattern
-tmux-builder implements a **file-based I/O pattern** that makes it LLM-friendly:
-- No CLI prompts required during execution
-- Input via JSON files in `sessions/active/<name>/prompts/`
-- Output via text files in `sessions/active/<name>/output/`
-- Fully automated workflow for AI-driven development
 
-### Session Management
-- Persistent tmux sessions for stateful conversations
-- Automatic session creation and cleanup
-- File-based communication for reliability
+File-based I/O for LLM-friendly operations:
 
-## Documentation Organization
+- **Input**: JSON files in `sessions/active/<name>/prompts/`
+- **Output**: Text files in `sessions/active/<name>/output/`
+- **Signals**: Completion markers like `PHASE_COMPLETE: planning`
 
-All documentation files have been moved to this `docs/` folder to keep the root directory clean and organized.
+## API Reference
+
+See main [README.md](../README.md#api-endpoints) for full API documentation.
+
+## Agents & Skills
+
+### Agents (`.claude/agents/`)
+
+- **Deployers**: aws-s3-static, aws-elastic-beanstalk, azure-blob-static, azure-app-service
+- **Testers**: health-check, screenshot
+- **Utilities**: cache-invalidator, log-analyzer
+
+### Skills (`.claude/skills/`)
+
+- **AWS**: s3-upload, cloudfront-create, cloudfront-invalidate, eb-deploy, ec2-launch, rds-configure, elasticache-setup
+- **Azure**: blob-upload, cdn-create, cdn-purge, app-service-deploy, sql-configure, redis-setup
+- **Core**: project-inception, plan-validation, integration-verification
+- **Testing**: health-check, screenshot-capture, e2e-generate, e2e-run

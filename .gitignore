@@ -28,5 +28,18 @@ Thumbs.db
 .env
 .env.local
 
-# Execution files (keep directory via .gitkeep)
+# Runtime data directories
 executions/*.json
+sessions/
+users/
+
+# Temporary files
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage

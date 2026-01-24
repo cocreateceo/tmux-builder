@@ -86,3 +86,36 @@ class TestJobQueueMonitor:
 
         assert len(stale) == 1
         assert stale[0]["id"] == "stale_job"
+
+    def test_start_job_calls_job_runner(self, tmp_path):
+        """Test _start_job creates and runs JobRunner."""
+        from unittest.mock import MagicMock, patch
+
+        mock_runner = MagicMock()
+        mock_runner.run_pipeline.return_value = {'status': 'completed'}
+
+        # Patch JobRunner in the job_runner module since it's imported locally
+        with patch('job_runner.JobRunner', return_value=mock_runner):
+            with patch('job_queue_monitor.ACTIVE_SESSIONS_DIR', tmp_path):
+                monitor = JobQueueMonitor()
+                monitor._start_job('test_session', {'id': 'job123', 'execution_id': 'user_sess'})
+
+        mock_runner.run_pipeline.assert_called_once()
+
+    def test_start_job_without_execution_id_logs_error(self, tmp_path, caplog):
+        """Test _start_job returns early when execution_id is missing."""
+        import logging
+        from unittest.mock import MagicMock, patch
+
+        mock_runner = MagicMock()
+
+        with patch('job_runner.JobRunner', return_value=mock_runner):
+            with patch('job_queue_monitor.ACTIVE_SESSIONS_DIR', tmp_path):
+                with caplog.at_level(logging.ERROR):
+                    monitor = JobQueueMonitor()
+                    monitor._start_job('test_session', {'id': 'job123'})  # No execution_id
+
+        # JobRunner should not be called
+        mock_runner.run_pipeline.assert_not_called()
+        # Error should be logged
+        assert "missing execution_id" in caplog.text

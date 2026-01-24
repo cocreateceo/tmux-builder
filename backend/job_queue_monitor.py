@@ -195,20 +195,26 @@ class JobQueueMonitor:
             self._start_job(session_id, job)
 
     def _start_job(self, session_id: str, job: Dict):
-        """Start execution of a pending job."""
-        from job_queue_manager import JobQueueManager
+        """Start execution of a pending job using JobRunner."""
+        from job_runner import JobRunner
 
         job_id = job.get("id")
-        logger.info(f"Starting job {job_id} in session {session_id}")
+        execution_id = job.get("execution_id")
+
+        if not execution_id:
+            logger.error(f"Job {job_id} missing execution_id")
+            return
+
+        logger.info(f"Starting job {job_id} with execution {execution_id}")
 
         try:
-            # Execute job (this is blocking in current implementation)
-            success = JobQueueManager.execute_job(session_id, job_id)
+            runner = JobRunner(execution_id)
+            result = runner.run_pipeline()
 
-            if success:
+            if result.get('status') == 'completed':
                 logger.info(f"Job {job_id} completed successfully")
             else:
-                logger.warning(f"Job {job_id} failed")
+                logger.warning(f"Job {job_id} failed: {result.get('error')}")
 
         except Exception as e:
             logger.error(f"Error executing job {job_id}: {e}")

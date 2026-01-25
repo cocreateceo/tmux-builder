@@ -1,4 +1,15 @@
-"""High-level session orchestration and management."""
+"""
+High-level session orchestration with file-based REPL protocol.
+
+Message Loop Protocol:
+1. Backend clears ack.marker and completed.marker
+2. Backend writes prompt to prompt.txt
+3. Backend sends: "Read prompt.txt, create ack.marker, process, create completed.marker"
+4. Claude creates ack.marker (prompt received)
+5. Claude updates status.json as it works
+6. Claude creates completed.marker when done
+7. Backend reads response
+"""
 
 import json
 import time
@@ -9,121 +20,155 @@ from typing import Optional, List, Dict
 
 from config import (
     SESSION_PREFIX,
-    MARKER_TIMEOUT,
-    MARKER_POLL_INTERVAL,
     CHAT_HISTORY_FILE,
-    INITIALIZED_MARKER,
-    PROCESSING_MARKER,
+    READY_MARKER,
+    ACK_MARKER,
     COMPLETED_MARKER,
-    get_user_session_path,
-    get_markers_path
+    PROMPT_FILE,
+    STATUS_FILE,
+    ACTIVE_SESSIONS_DIR,
+    get_markers_path,
+    get_marker_file,
+    get_prompt_file,
+    get_status_file,
+    ACK_MARKER_TIMEOUT,
+    COMPLETED_MARKER_TIMEOUT,
 )
 from tmux_helper import TmuxHelper
+from marker_utils import (
+    wait_for_marker,
+    clear_for_new_message,
+    delete_marker,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class SessionController:
-    """Manages Claude CLI sessions via tmux."""
+    """Manages Claude CLI sessions via tmux with marker-based protocol."""
 
-    def __init__(self, username: str = "default_user"):
-        logger.info(f"Initializing SessionController for user: {username}")
-        self.username = username
-        self.session_path = get_user_session_path(username)
-        self.markers_path = get_markers_path(username)
+    def __init__(self, guid: str):
+        """
+        Initialize SessionController for a GUID-based session.
+
+        Args:
+            guid: Session GUID (from SessionInitializer)
+        """
+        logger.info(f"Initializing SessionController for GUID: {guid}")
+        self.guid = guid
+        self.session_path = ACTIVE_SESSIONS_DIR / guid
+        self.markers_path = get_markers_path(guid)
         self.chat_history_path = self.session_path / CHAT_HISTORY_FILE
-        self.session_name = f"{SESSION_PREFIX}_{username}_{int(time.time())}"
+        self.prompt_file_path = get_prompt_file(guid)
+        self.status_file_path = get_status_file(guid)
+        self.session_name = f"{SESSION_PREFIX}_{guid}"
+
         logger.info(f"Session path: {self.session_path}")
         logger.info(f"Session name: {self.session_name}")
-        logger.info(f"Markers path: {self.markers_path}")
-        logger.info(f"Chat history: {self.chat_history_path}")
 
-    def initialize_session(self) -> bool:
-        """Initialize a new Claude CLI session in tmux."""
-        logger.info("=== INITIALIZING SESSION ===")
-        try:
-            # Create tmux session
-            logger.info(f"Creating tmux session: {self.session_name}")
-            logger.info(f"Working directory: {self.session_path}")
-            if not TmuxHelper.create_session(self.session_name, str(self.session_path)):
-                logger.error("Failed to create tmux session")
-                return False
-            logger.info("✓ Tmux session created")
-
-            # Build and send initialization instructions
-            logger.info("Building initialization instructions...")
-            instructions = self._build_session_instructions()
-            logger.info(f"Instructions length: {len(instructions)} chars")
-
-            # Clear old markers
-            logger.info("Clearing old markers...")
-            self._clear_markers()
-
-            # Send instructions
-            logger.info("Sending initialization instructions to Claude...")
-            if not TmuxHelper.send_instruction(self.session_name, instructions):
-                logger.error("Failed to send instructions")
-                return False
-            logger.info("✓ Instructions sent")
-
-            # Wait for initialized marker
-            logger.info(f"Waiting for initialized marker (timeout: {MARKER_TIMEOUT}s)...")
-            if self._wait_for_marker(INITIALIZED_MARKER, timeout=MARKER_TIMEOUT):
-                logger.info("✓ Session initialized successfully")
-                return True
-
-            logger.error("Timeout waiting for initialized marker")
-            return False
-
-        except Exception as e:
-            logger.error(f"Error initializing session: {e}", exc_info=True)
-            return False
-
-    def send_message(self, message: str) -> Optional[str]:
+    def send_message(self, message: str, timeout: float = COMPLETED_MARKER_TIMEOUT) -> Optional[str]:
         """
-        Send a message to Claude and wait for response.
+        Send a message to Claude using file-based REPL protocol.
 
-        Returns the assistant's response or None if error/timeout.
+        Protocol:
+        1. Clear ack.marker and completed.marker
+        2. Write message to prompt.txt
+        3. Send instruction to read and process
+        4. Wait for ack.marker (prompt received)
+        5. Wait for completed.marker (processing done)
+        6. Read response from status.json or chat history
+
+        Args:
+            message: User message to send
+            timeout: Max seconds to wait for completion
+
+        Returns:
+            Assistant's response or None if error/timeout
         """
         logger.info("=== SENDING MESSAGE ===")
         logger.info(f"Message: {message[:100]}...")
+
         try:
-            # Append user message to history
-            logger.info("Appending user message to history...")
+            # Step 1: Clear markers for new message
+            logger.info("Step 1: Clearing markers...")
+            clear_for_new_message(self.guid)
+
+            # Step 2: Append user message to history
+            logger.info("Step 2: Appending user message to history...")
             self._append_to_history("user", message)
 
-            # Clear completed marker from previous request
-            completed_marker = self.markers_path / COMPLETED_MARKER
-            if completed_marker.exists():
-                logger.info("Clearing previous completed marker")
-                completed_marker.unlink()
+            # Step 3: Write message to prompt.txt
+            logger.info("Step 3: Writing prompt to file...")
+            self.prompt_file_path.parent.mkdir(parents=True, exist_ok=True)
+            self.prompt_file_path.write_text(message)
+            logger.info(f"Prompt written to: {self.prompt_file_path}")
 
-            # Send message via tmux
-            logger.info(f"Sending message to tmux session: {self.session_name}")
-            if not TmuxHelper.send_instruction(self.session_name, message):
-                logger.error("Failed to send message via tmux")
-                return None
-            logger.info("✓ Message sent to Claude")
+            # Step 4: Update status to processing
+            self._update_status("processing", 10, "Processing user request")
 
-            # Wait for completion marker
-            logger.info(f"Waiting for completion marker (timeout: {MARKER_TIMEOUT}s)...")
-            if not self._wait_for_marker(COMPLETED_MARKER, timeout=MARKER_TIMEOUT):
-                logger.error("Timeout waiting for completion marker")
-                return "Timeout waiting for response. Please try again."
-            logger.info("✓ Completion marker received")
+            # Step 5: Get marker paths for instruction
+            ack_marker_path = get_marker_file(self.guid, ACK_MARKER)
+            completed_marker_path = get_marker_file(self.guid, COMPLETED_MARKER)
 
-            # Read response from chat history
-            logger.info("Reading response from chat history...")
-            response = self._get_new_assistant_response()
-            logger.info(f"Response received: {response[:100] if response else 'None'}...")
+            # Step 6: Send instruction to Claude with retry logic
+            # Single-line instruction (avoid multi-line issues with tmux)
+            instruction = (
+                f"Read the user message from {self.prompt_file_path}, process it, "
+                f"save response to {self.chat_history_path}, "
+                f"then create {ack_marker_path} and {completed_marker_path} when done."
+            )
+
+            max_retries = 3
+            ack_received = False
+
+            for attempt in range(1, max_retries + 1):
+                logger.info(f"Step 6: Attempt {attempt}/{max_retries} - Sending process instruction...")
+
+                # Clear stale ack marker before retry
+                delete_marker(self.guid, ACK_MARKER)
+
+                if not TmuxHelper.send_instruction(self.session_name, instruction):
+                    logger.error("Failed to send instruction via tmux")
+                    return None
+
+                # Wait for ack.marker
+                logger.info(f"Waiting for ack.marker (timeout: {ACK_MARKER_TIMEOUT}s)...")
+                if wait_for_marker(self.guid, ACK_MARKER, timeout=ACK_MARKER_TIMEOUT):
+                    logger.info("ack.marker received")
+                    ack_received = True
+                    break
+                else:
+                    logger.warning(f"Attempt {attempt} failed - ack.marker not received")
+                    if attempt < max_retries:
+                        retry_delay = 3.0 * attempt
+                        logger.info(f"Retrying in {retry_delay}s...")
+                        time.sleep(retry_delay)
+
+            if not ack_received:
+                logger.error(f"Failed to receive ack.marker after {max_retries} attempts")
+                return "Claude did not acknowledge the message after multiple attempts. Please try again."
+
+            # Step 8: Wait for completed.marker
+            logger.info(f"Step 8: Waiting for completed.marker (timeout: {timeout}s)...")
+            if not wait_for_marker(self.guid, COMPLETED_MARKER, timeout=timeout):
+                logger.error("Timeout waiting for completed.marker")
+                return "Timeout waiting for response. Claude may still be processing."
+            logger.info("completed.marker received")
+
+            # Step 9: Read response
+            logger.info("Step 9: Reading response...")
+            response = self._get_latest_assistant_response()
+            logger.info(f"Response: {response[:100] if response else 'None'}...")
+
             return response
 
         except Exception as e:
             logger.error(f"Error sending message: {e}", exc_info=True)
+            self._update_status("error", 0, str(e))
             return None
 
     def get_chat_history(self) -> List[Dict]:
-        """Load and return chat history."""
+        """Load and return chat history from JSONL file."""
         if not self.chat_history_path.exists():
             return []
 
@@ -134,9 +179,23 @@ class SessionController:
                     if line.strip():
                         messages.append(json.loads(line))
         except Exception as e:
-            print(f"Error loading chat history: {e}")
+            logger.error(f"Error loading chat history: {e}")
 
         return messages
+
+    def get_status(self) -> Dict:
+        """Read current status from status.json."""
+        try:
+            if self.status_file_path.exists():
+                return json.loads(self.status_file_path.read_text())
+        except Exception as e:
+            logger.error(f"Error reading status: {e}")
+
+        return {
+            'state': 'unknown',
+            'progress': 0,
+            'message': 'Unable to read status'
+        }
 
     def clear_session(self) -> bool:
         """Clear the session and reset state."""
@@ -149,53 +208,37 @@ class SessionController:
                 self.chat_history_path.unlink()
 
             # Clear markers
-            self._clear_markers()
+            for marker in [READY_MARKER, ACK_MARKER, COMPLETED_MARKER]:
+                delete_marker(self.guid, marker)
 
+            # Clear prompt file
+            if self.prompt_file_path.exists():
+                self.prompt_file_path.unlink()
+
+            logger.info(f"Session {self.guid} cleared")
             return True
 
         except Exception as e:
-            print(f"Error clearing session: {e}")
+            logger.error(f"Error clearing session: {e}")
             return False
 
-    def _build_session_instructions(self) -> str:
-        """Build comprehensive initialization instructions for Claude."""
-        instructions = f"""
-You are Claude, an AI assistant running in a tmux-based chat interface.
-
-IMPORTANT INSTRUCTIONS:
-1. Save all messages (both user and assistant) to: {self.chat_history_path}
-   Format: One JSON object per line (JSONL format)
-   Example: {{"role":"user","content":"message","timestamp":"2026-01-23T10:30:00Z"}}
-
-2. Create marker files to signal processing state:
-   - Create {self.markers_path / INITIALIZED_MARKER} when you're ready
-   - Create {self.markers_path / PROCESSING_MARKER} when processing a request
-   - Create {self.markers_path / COMPLETED_MARKER} when done with a response
-
-3. For each user message:
-   a. Save the user message to chat history
-   b. Process the request
-   c. Save your response to chat history
-   d. Create the completed marker
-
-4. Keep responses concise and helpful.
-
-Please confirm you understand by creating the initialized marker file.
-"""
-        return instructions.strip()
+    def is_active(self) -> bool:
+        """Check if the tmux session is active."""
+        return TmuxHelper.session_exists(self.session_name)
 
     def _append_to_history(self, role: str, content: str):
-        """Append a message to chat history."""
+        """Append a message to chat history JSONL file."""
         message = {
             "role": role,
             "content": content,
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }
 
+        self.chat_history_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.chat_history_path, 'a', encoding='utf-8') as f:
             f.write(json.dumps(message) + '\n')
 
-    def _get_new_assistant_response(self) -> str:
+    def _get_latest_assistant_response(self) -> str:
         """Read the latest assistant response from chat history."""
         messages = self.get_chat_history()
 
@@ -204,27 +247,34 @@ Please confirm you understand by creating the initialized marker file.
             if msg.get('role') == 'assistant':
                 return msg.get('content', '')
 
+        # Fallback: check status.json for response
+        status = self.get_status()
+        if status.get('state') == 'completed' and status.get('response'):
+            return status.get('response')
+
         return "No response received."
 
-    def _wait_for_marker(self, marker_name: str, timeout: float) -> bool:
-        """Poll for a marker file with timeout."""
-        marker_path = self.markers_path / marker_name
-        start_time = time.time()
+    def _update_status(self, state: str, progress: int, message: str):
+        """Update status.json with current state."""
+        try:
+            status = {
+                'state': state,
+                'progress': progress,
+                'message': message,
+                'phase': state,
+                'updated_at': datetime.utcnow().isoformat() + 'Z'
+            }
 
-        while time.time() - start_time < timeout:
-            if marker_path.exists():
-                return True
-            time.sleep(MARKER_POLL_INTERVAL)
+            # Preserve existing fields if status file exists
+            if self.status_file_path.exists():
+                try:
+                    existing = json.loads(self.status_file_path.read_text())
+                    for key in ['guid', 'email', 'user_request']:
+                        if key in existing:
+                            status[key] = existing[key]
+                except Exception:
+                    pass  # Ignore JSON parse errors
 
-        return False
-
-    def _clear_markers(self):
-        """Clear all marker files."""
-        for marker in [INITIALIZED_MARKER, PROCESSING_MARKER, COMPLETED_MARKER]:
-            marker_path = self.markers_path / marker
-            if marker_path.exists():
-                marker_path.unlink()
-
-    def is_active(self) -> bool:
-        """Check if the session is active."""
-        return TmuxHelper.session_exists(self.session_name)
+            self.status_file_path.write_text(json.dumps(status, indent=2))
+        except Exception as e:
+            logger.error(f"Error updating status: {e}")

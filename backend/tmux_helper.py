@@ -79,29 +79,13 @@ class TmuxHelper:
                 wait_after=TMUX_CLAUDE_INIT_DELAY
             )
 
-            # Step 4: Send bypass Enter keys (clear any initial prompts)
-            for i in range(3):
-                subprocess.run(
-                    ["tmux", "send-keys", "-t", session_name, "Enter"],
-                    stderr=subprocess.DEVNULL
-                )
-                time.sleep(0.5)
+            # Step 4: Wait for Claude CLI to fully initialize
+            # No probe needed - marker-based handshake will verify readiness
+            logger.info("Waiting for Claude CLI to initialize...")
+            time.sleep(2.0)
 
-            # Step 5: Verify Claude is ready with probe
-            from datetime import datetime
-            timestamp = datetime.now().strftime("%H%M%S")
-            probe_cmd = f"echo '[PROBE {timestamp}] Claude ready'"
-
-            TmuxHelper._send_literal_command(session_name, probe_cmd, wait_after=2.0)
-
-            # Capture and verify
-            output = TmuxHelper.capture_pane_output(session_name)
-            if "[PROBE" in output and "Claude ready" in output:
-                logger.info(f"Claude CLI initialized successfully in: {session_name}")
-                return True
-            else:
-                logger.warning(f"Probe verification failed, but continuing")
-                return True
+            logger.info(f"Claude CLI session created: {session_name}")
+            return True
 
         except Exception as e:
             logger.error(f"Error creating tmux session: {e}")

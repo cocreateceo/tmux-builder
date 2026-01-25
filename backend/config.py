@@ -19,8 +19,10 @@ BASE_DIR = Path(__file__).parent.resolve()
 # Project root (parent of backend)
 PROJECT_ROOT = BASE_DIR.parent
 
-# Sessions directory (following SmartBuild pattern)
-SESSIONS_DIR = PROJECT_ROOT / "sessions"
+# Sessions directory - USE NATIVE LINUX PATH for better filesystem performance
+# WSL has significant delays (~6+ seconds) for file visibility on /mnt/c/
+# Using native Linux path avoids these inter-process filesystem sync issues
+SESSIONS_DIR = Path.home() / "tmux-builder" / "sessions"
 ACTIVE_SESSIONS_DIR = SESSIONS_DIR / "active"
 DELETED_SESSIONS_DIR = SESSIONS_DIR / "deleted"
 
@@ -108,10 +110,26 @@ SESSION_PREFIX = TMUX_SESSION_PREFIX
 MARKER_TIMEOUT = 60  # seconds to wait for response
 MARKER_POLL_INTERVAL = 0.5  # seconds between checks
 
-# Marker file names
+# Specific marker timeouts
+# NOTE: WSL has ~6s delay for file visibility across process boundaries
+READY_MARKER_TIMEOUT = 30   # seconds to wait for Claude to be ready
+ACK_MARKER_TIMEOUT = 30     # seconds to wait for prompt acknowledgment (was 10, increased for WSL)
+COMPLETED_MARKER_TIMEOUT = 300  # seconds to wait for task completion (5 min)
+
+# Marker file names (file-based REPL protocol)
+READY_MARKER = "ready.marker"          # Claude creates when ready for input
+ACK_MARKER = "ack.marker"              # Claude creates when prompt received
+COMPLETED_MARKER = "completed.marker"  # Claude creates when task done
+
+# Legacy markers (for backwards compatibility)
 INITIALIZED_MARKER = "initialized.marker"
 PROCESSING_MARKER = "processing.marker"
-COMPLETED_MARKER = "completed.marker"
+
+# Status file
+STATUS_FILE = "status.json"
+
+# Prompt file (backend writes, Claude reads)
+PROMPT_FILE = "prompt.txt"
 
 # Chat history file
 CHAT_HISTORY_FILE = "chat_history.jsonl"
@@ -211,11 +229,26 @@ def get_user_session_path(username: str) -> Path:
     user_dir.mkdir(parents=True, exist_ok=True)
     return user_dir
 
-def get_markers_path(username: str) -> Path:
-    """Get the markers directory path for a user (for chat UI)."""
-    markers_dir = get_user_session_path(username) / "markers"
+def get_markers_path(guid: str) -> Path:
+    """Get the markers directory path for a session."""
+    markers_dir = ACTIVE_SESSIONS_DIR / guid / "markers"
     markers_dir.mkdir(parents=True, exist_ok=True)
     return markers_dir
+
+
+def get_marker_file(guid: str, marker_name: str) -> Path:
+    """Get the full path to a specific marker file."""
+    return get_markers_path(guid) / marker_name
+
+
+def get_status_file(guid: str) -> Path:
+    """Get the path to status.json for a session."""
+    return ACTIVE_SESSIONS_DIR / guid / STATUS_FILE
+
+
+def get_prompt_file(guid: str) -> Path:
+    """Get the path to prompt.txt for a session."""
+    return ACTIVE_SESSIONS_DIR / guid / PROMPT_FILE
 
 # ==============================================
 # VALIDATION

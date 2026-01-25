@@ -22,7 +22,10 @@ def test_render_system_prompt_with_variables(prompt_manager):
         'phone': '+15551234567',
         'user_request': 'Build a todo app',
         'session_path': '/tmp/test_session',
-        'aws_profile': 'sunware'
+        'aws_profile': 'sunware',
+        'initialized_marker': '/tmp/test_session/markers/initialized.marker',
+        'processing_marker': '/tmp/test_session/markers/processing.marker',
+        'completed_marker': '/tmp/test_session/markers/completed.marker'
     }
 
     result = prompt_manager.render_system_prompt('autonomous_agent', variables)
@@ -32,6 +35,9 @@ def test_render_system_prompt_with_variables(prompt_manager):
     assert 'test@example.com' in result
     assert 'Build a todo app' in result
     assert 'sunware' in result
+    assert '/tmp/test_session/markers/initialized.marker' in result
+    assert '/tmp/test_session/markers/processing.marker' in result
+    assert '/tmp/test_session/markers/completed.marker' in result
 
 def test_render_fails_with_missing_variables(prompt_manager):
     """Test that rendering fails when required variables are missing."""
@@ -59,7 +65,10 @@ def test_autonomous_agent_prompt_contains_key_sections(prompt_manager):
         'phone': '+15551234567',
         'user_request': 'Build a React todo app with API backend',
         'session_path': '/path/to/session',
-        'aws_profile': 'sunware'
+        'aws_profile': 'sunware',
+        'initialized_marker': '/path/to/session/markers/initialized.marker',
+        'processing_marker': '/path/to/session/markers/processing.marker',
+        'completed_marker': '/path/to/session/markers/completed.marker'
     }
 
     result = prompt_manager.render_system_prompt('autonomous_agent', variables)
@@ -69,6 +78,13 @@ def test_autonomous_agent_prompt_contains_key_sections(prompt_manager):
     assert 'Phase 2' in result or 'PHASE 2' in result
     assert 'Phase 3' in result or 'PHASE 3' in result
     assert 'Phase 4' in result or 'PHASE 4' in result
+
+    # Check for status tracking protocol
+    assert 'STATUS TRACKING PROTOCOL' in result
+    assert 'Marker Files' in result
+    assert 'initialized.marker' in result
+    assert 'processing.marker' in result
+    assert 'completed.marker' in result
 
     # Check for parallel execution strategy
     assert 'PARALLEL EXECUTION STRATEGY' in result

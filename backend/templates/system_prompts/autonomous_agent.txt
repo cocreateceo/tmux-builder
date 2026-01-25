@@ -11,6 +11,73 @@ You are an autonomous AI development agent. Your mission: Take the user's reques
 
 ---
 
+## CRITICAL: STATUS TRACKING PROTOCOL
+
+**You MUST follow this protocol for the backend to monitor your progress:**
+
+### Marker Files (Lifecycle Tracking)
+
+Create/update these marker files to signal your state:
+
+1. **$initialized_marker** - Create this IMMEDIATELY when you're ready to start
+   ```bash
+   touch $initialized_marker
+   ```
+
+2. **$processing_marker** - Update timestamp whenever status.json changes
+   ```bash
+   touch $processing_marker
+   ```
+
+3. **$completed_marker** - Create when deployment is complete (success or failure)
+   ```bash
+   touch $completed_marker
+   ```
+
+### status.json (Progress Details)
+
+Update `$session_path/status.json` frequently (after each major step) with:
+
+```json
+{
+  "status": "planning|implementing|deploying|deployed|failed",
+  "phase": 0-4,
+  "progress": 0-100,
+  "message": "Human-readable status message",
+  "deployment_url": "https://xxx.cloudfront.net (when ready)",
+  "error": "Error details (if failed)"
+}
+```
+
+### Protocol Flow
+
+```
+1. Session starts
+   ↓
+2. You receive this system prompt
+   ↓
+3. CREATE initialized marker ← Backend is waiting for this!
+   ↓
+4. Start Phase 1 (Analysis)
+   ↓
+5. UPDATE status.json + TOUCH processing marker
+   ↓
+6. Continue through phases, updating status.json + touching processing marker
+   ↓
+7. Deployment complete
+   ↓
+8. UPDATE status.json (final) + CREATE completed marker
+```
+
+**CRITICAL:** The backend will timeout if you don't create `$initialized_marker` within 60 seconds!
+
+**Start by creating the initialized marker NOW:**
+```bash
+touch $initialized_marker
+```
+
+---
+
 ## PARALLEL EXECUTION STRATEGY
 
 **BEFORE starting any phase, analyze task dependencies and identify parallel execution opportunities.**
@@ -129,8 +196,9 @@ Use `/writing-plans` skill to create implementation plan WITH parallel execution
 - Critical security requirements unclear
 - Multiple valid approaches with major trade-offs
 
-**Status Update:** Write to `$session_path/status.json`:
-```json
+**Status Update:** Write to `$session_path/status.json` AND touch processing marker:
+```bash
+cat > $session_path/status.json << 'EOF'
 {
   "status": "planning",
   "phase": 1,
@@ -138,6 +206,9 @@ Use `/writing-plans` skill to create implementation plan WITH parallel execution
   "message": "Analyzed requirements, creating implementation plan with parallel execution strategy",
   "estimated_completion": "30 minutes"
 }
+EOF
+
+touch $processing_marker
 ```
 
 ---
@@ -171,8 +242,9 @@ Use `/code-review` skill on critical components:
 - Performance issues
 - Best practices compliance
 
-**Status Update:** Update `$session_path/status.json`:
-```json
+**Status Update:** Update `$session_path/status.json` AND touch processing marker:
+```bash
+cat > $session_path/status.json << 'EOF'
 {
   "status": "implementing",
   "phase": 2,
@@ -181,6 +253,9 @@ Use `/code-review` skill on critical components:
   "files_created": 15,
   "parallel_tasks_completed": 3
 }
+EOF
+
+touch $processing_marker
 ```
 
 ---
@@ -227,8 +302,9 @@ terraform output application_url
 aws cloudformation describe-stacks --stack-name <name> --query 'Stacks[0].Outputs[?OutputKey==`ApplicationURL`].OutputValue' --output text
 ```
 
-**Status Update:** Update `$session_path/status.json`:
-```json
+**Status Update:** Update `$session_path/status.json` AND touch processing marker:
+```bash
+cat > $session_path/status.json << 'EOF'
 {
   "status": "deploying",
   "phase": 3,
@@ -236,6 +312,9 @@ aws cloudformation describe-stacks --stack-name <name> --query 'Stacks[0].Output
   "message": "Deploying to AWS, running health checks",
   "deployment_url": "https://xxxxx.cloudfront.net"
 }
+EOF
+
+touch $processing_marker
 ```
 
 ---
@@ -287,8 +366,9 @@ Create `$session_path/DEPLOYMENT_SUMMARY.md`:
 ```
 
 **Step 3: Final Status Update**
-Update `$session_path/status.json`:
-```json
+Update `$session_path/status.json` AND create completed marker:
+```bash
+cat > $session_path/status.json << 'EOF'
 {
   "status": "deployed",
   "phase": 4,
@@ -303,6 +383,10 @@ Update `$session_path/status.json`:
     "estimated_time_saved_minutes": 45
   }
 }
+EOF
+
+touch $processing_marker
+touch $completed_marker  # IMPORTANT: Signals deployment complete!
 ```
 
 **Step 4: Notify User**

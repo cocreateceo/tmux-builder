@@ -97,6 +97,16 @@ class SessionInitializer:
                     'error': 'Failed to create or recover session'
                 }
 
+            # Create markers directory
+            markers_path = session_path / "markers"
+            markers_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"✓ Markers directory: {markers_path}")
+
+            # Define marker file paths
+            initialized_marker = markers_path / "initialized.marker"
+            processing_marker = markers_path / "processing.marker"
+            completed_marker = markers_path / "completed.marker"
+
             # Render system prompt
             logger.info("Rendering autonomous agent system prompt...")
             system_prompt = self.prompt_manager.render_system_prompt(
@@ -107,7 +117,10 @@ class SessionInitializer:
                     'phone': phone,
                     'user_request': user_request,
                     'session_path': str(session_path),
-                    'aws_profile': 'sunware'
+                    'aws_profile': 'sunware',
+                    'initialized_marker': str(initialized_marker),
+                    'processing_marker': str(processing_marker),
+                    'completed_marker': str(completed_marker)
                 }
             )
 
@@ -143,13 +156,28 @@ class SessionInitializer:
                 stderr=subprocess.DEVNULL
             )
 
-            logger.info("✓ Session initialization complete")
+            # Wait for initialized marker
+            logger.info(f"Waiting for initialized marker: {initialized_marker}")
+            timeout = 60  # 60 seconds timeout
+            start_time = time.time()
 
+            while time.time() - start_time < timeout:
+                if initialized_marker.exists():
+                    logger.info("✓ Initialized marker detected!")
+                    logger.info("✓ Session initialization complete")
+                    return {
+                        'success': True,
+                        'session_name': session_name,
+                        'session_path': str(session_path),
+                        'guid': guid
+                    }
+                time.sleep(0.5)
+
+            # Timeout reached
+            logger.error(f"Timeout waiting for initialized marker after {timeout}s")
             return {
-                'success': True,
-                'session_name': session_name,
-                'session_path': str(session_path),
-                'guid': guid
+                'success': False,
+                'error': f'Timeout waiting for initialized marker'
             }
 
         except Exception as e:

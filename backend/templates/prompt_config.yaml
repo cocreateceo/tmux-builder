@@ -19,6 +19,9 @@ system_prompts:
       - user_request
       - session_path
       - aws_profile
+      - initialized_marker
+      - processing_marker
+      - completed_marker
 
   refinement_mode:
     template_file: "templates/system_prompts/refinement_mode.txt"

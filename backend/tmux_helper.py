@@ -219,3 +219,69 @@ class TmuxHelper:
             return []
         except Exception:
             return []
+
+    @staticmethod
+    def verify_claude_responsive(session_name: str, timeout: int = 10) -> bool:
+        """
+        Verify that Claude CLI in the session is responsive.
+
+        Sends a simple test message and checks for response marker.
+
+        Args:
+            session_name: Name of tmux session
+            timeout: Timeout in seconds
+
+        Returns:
+            True if Claude is responsive, False otherwise
+        """
+        import tempfile
+
+        try:
+            # Create temporary marker file
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.marker') as f:
+                marker_file = f.name
+
+            # Send test command to create marker
+            test_command = f"touch {marker_file}"
+            TmuxHelper.send_instruction(session_name, test_command)
+
+            # Wait for marker file to appear
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                if Path(marker_file).exists():
+                    # Clean up and return success
+                    Path(marker_file).unlink()
+                    logger.debug(f"Session {session_name} is responsive")
+                    return True
+                time.sleep(0.5)
+
+            # Timeout - not responsive
+            logger.warning(f"Session {session_name} not responsive after {timeout}s")
+            return False
+
+        except Exception as e:
+            logger.error(f"Error checking session responsiveness: {e}")
+            return False
+
+    @staticmethod
+    def send_keys(session_name: str, keys: str) -> bool:
+        """
+        Send keys directly to tmux session (simple wrapper).
+
+        Args:
+            session_name: Name of tmux session
+            keys: Keys to send
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "-l", keys],
+                stderr=subprocess.DEVNULL
+            )
+            time.sleep(TMUX_SEND_COMMAND_DELAY)
+            return True
+        except Exception as e:
+            logger.error(f"Error sending keys: {e}")
+            return False

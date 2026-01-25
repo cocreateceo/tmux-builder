@@ -144,17 +144,24 @@ class SessionInitializer:
             status_file.write_text(json.dumps(initial_status, indent=2))
             logger.info(f"✓ Initial status written to {status_file}")
 
-            # Send system prompt to Claude
+            # Send system prompt to Claude with explicit execution instruction
             logger.info("Sending system prompt to Claude CLI...")
+
+            # First, display the system prompt
             TmuxHelper.send_keys(session_name, f"cat {system_prompt_file}")
             time.sleep(1)
             TmuxHelper.send_keys(session_name, "")  # Press enter
+            time.sleep(2)  # Wait for Claude to read the file
+
+            # Then send explicit instruction to execute it
+            execute_instruction = "Follow the instructions in the system prompt above IMMEDIATELY. Start by creating the initialized marker file as instructed. Do not ask for confirmation - execute the protocol NOW."
+            TmuxHelper.send_keys(session_name, execute_instruction)
             time.sleep(0.5)
-            # Send enter again to submit
             subprocess_result = subprocess.run(
                 ["tmux", "send-keys", "-t", session_name, "Enter"],
                 stderr=subprocess.DEVNULL
             )
+            logger.info("✓ System prompt and execution instruction sent")
 
             # Wait for initialized marker
             logger.info(f"Waiting for initialized marker: {initialized_marker}")

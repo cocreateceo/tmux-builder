@@ -19,8 +19,9 @@ system_prompts:
       - user_request
       - session_path
       - aws_profile
-      - initialized_marker
-      - processing_marker
+      # Marker files (legacy names, mapped from new protocol)
+      - initialized_marker  # maps to ready_marker
+      - processing_marker   # maps to ack_marker
       - completed_marker
 
   refinement_mode:

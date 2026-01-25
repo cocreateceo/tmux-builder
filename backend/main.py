@@ -196,33 +196,48 @@ async def get_session_status(guid: str):
 
 @app.post("/api/session/create")
 async def create_session():
-    """Create a new Claude CLI session."""
+    """
+    Create a new Claude CLI session (simple chat UI flow).
+
+    For the full GUID-based flow, use /api/register instead.
+    This endpoint creates a session using a default GUID for demo purposes.
+    """
     global session_controller
 
     logger.info("=== CREATE SESSION REQUEST ===")
     logger.info(f"User: {DEFAULT_USER}")
 
     try:
-        # Create new session controller
-        logger.info("Creating SessionController...")
-        session_controller = SessionController(username=DEFAULT_USER)
-        logger.info(f"SessionController created: {session_controller.session_name}")
+        # Generate a simple GUID for demo mode
+        demo_guid = generate_guid(f"{DEFAULT_USER}@demo.local", "0000000000")
+        logger.info(f"Demo GUID: {demo_guid}")
 
-        # Initialize session
-        logger.info("Initializing session...")
-        success = session_controller.initialize_session()
-        logger.info(f"Session initialization result: {success}")
+        # Use SessionInitializer for proper marker-based handshake
+        from session_initializer import SessionInitializer
+        initializer = SessionInitializer()
 
-        if success:
+        logger.info("Initializing session with marker handshake...")
+        result = initializer.initialize_session(
+            guid=demo_guid,
+            email=f"{DEFAULT_USER}@demo.local",
+            phone="0000000000",
+            user_request="Interactive chat session"
+        )
+
+        if result.get('success'):
+            # Create SessionController for message handling
+            session_controller = SessionController(guid=demo_guid)
             logger.info(f"✓ Session created successfully: {session_controller.session_name}")
             return {
                 "success": True,
                 "message": "Session created successfully",
-                "session_name": session_controller.session_name
+                "session_name": session_controller.session_name,
+                "guid": demo_guid
             }
         else:
-            logger.error("Failed to initialize session")
-            raise HTTPException(status_code=500, detail="Failed to initialize session")
+            error_msg = result.get('error', 'Unknown error')
+            logger.error(f"Failed to initialize session: {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
 
     except Exception as e:
         logger.error(f"Error creating session: {e}", exc_info=True)

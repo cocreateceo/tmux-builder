@@ -50,3 +50,38 @@ def test_get_available_prompts(prompt_manager):
 
     assert 'autonomous_agent' in prompts
     assert isinstance(prompts, list)
+
+def test_autonomous_agent_prompt_contains_key_sections(prompt_manager):
+    """Test that autonomous agent prompt has all required sections."""
+    variables = {
+        'guid': 'abc123',
+        'email': 'user@example.com',
+        'phone': '+15551234567',
+        'user_request': 'Build a React todo app with API backend',
+        'session_path': '/path/to/session',
+        'aws_profile': 'sunware'
+    }
+
+    result = prompt_manager.render_system_prompt('autonomous_agent', variables)
+
+    # Check for key sections
+    assert 'Phase 1' in result or 'PHASE 1' in result
+    assert 'Phase 2' in result or 'PHASE 2' in result
+    assert 'Phase 3' in result or 'PHASE 3' in result
+    assert 'Phase 4' in result or 'PHASE 4' in result
+
+    # Check for parallel execution strategy
+    assert 'PARALLEL EXECUTION STRATEGY' in result
+    assert 'Dependency Analysis' in result
+    assert 'Batch' in result
+
+    # Check for skills mentioned
+    assert 'brainstorm' in result.lower() or '/brainstorm' in result
+    assert 'writing-plans' in result or '/writing-plans' in result
+    assert 'test-driven-development' in result or 'TDD' in result
+
+    # Check for AWS profile
+    assert 'sunware' in result
+
+    # Check for user request
+    assert 'React todo app' in result

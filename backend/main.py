@@ -1,14 +1,17 @@
 """FastAPI backend for tmux-builder chat interface."""
 
 import logging
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import API_HOST, API_PORT, DEFAULT_USER
 from session_controller import SessionController
+from background_worker import BackgroundWorker
+from guid_generator import generate_guid
 
 # Configure logging
 logging.basicConfig(
@@ -31,8 +34,18 @@ app.add_middleware(
 # Global session controller (simplified for demo)
 session_controller: Optional[SessionController] = None
 
+# Initialize background worker
+background_worker = BackgroundWorker()
+
 
 # Request/Response models
+class RegistrationRequest(BaseModel):
+    """Registration request model."""
+    email: str
+    phone: str
+    initial_request: str
+
+
 class ChatMessage(BaseModel):
     message: str
     screenshot: Optional[str] = None
@@ -61,6 +74,124 @@ async def root():
     """Root endpoint."""
     logger.info("Root endpoint called")
     return {"message": "Tmux Builder API", "version": "1.0.0"}
+
+
+@app.post("/api/register")
+async def register_user(request: RegistrationRequest):
+    """
+    Register new user and start session initialization.
+
+    Returns immediately with GUID URL. Session initializes in background.
+    """
+    try:
+        logger.info("=== REGISTRATION REQUEST ===")
+        logger.info(f"Email: {request.email}")
+        logger.info(f"Phone: {request.phone}")
+        logger.info(f"Request: {request.initial_request[:100]}...")
+
+        # Generate deterministic GUID
+        guid = generate_guid(request.email, request.phone)
+        logger.info(f"Generated GUID: {guid}")
+
+        # Start background initialization
+        background_worker.start_initialization(
+            guid=guid,
+            email=request.email,
+            phone=request.phone,
+            user_request=request.initial_request
+        )
+
+        # Build response
+        base_url = os.getenv('BASE_URL', f'http://{API_HOST}:{API_PORT}')
+        session_url = f"{base_url}/session/{guid}"
+        status_url = f"{base_url}/api/session/{guid}/status"
+
+        # Calculate expiry (5 days from now)
+        expires_at = (datetime.utcnow() + timedelta(days=5)).isoformat() + 'Z'
+
+        response = {
+            "success": True,
+            "guid": guid,
+            "url": session_url,
+            "status_check_url": status_url,
+            "message": "Session initialization started",
+            "expires_at": expires_at,
+            "created_at": datetime.utcnow().isoformat() + 'Z'
+        }
+
+        logger.info(f"✓ Registration successful: {session_url}")
+        return response
+
+    except Exception as e:
+        logger.exception(f"Registration failed: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@app.get("/api/session/{guid}/status")
+async def get_session_status(guid: str):
+    """
+    Get current status of session initialization/build.
+
+    Returns job status from background worker plus any status.json updates.
+    """
+    try:
+        logger.info(f"=== STATUS CHECK: {guid} ===")
+
+        # Get job status from background worker
+        job_status = background_worker.get_job_status(guid)
+
+        if job_status is None:
+            logger.warning(f"Unknown GUID: {guid}")
+            return {
+                "success": False,
+                "error": "Session not found",
+                "guid": guid
+            }
+
+        # Try to read status.json if session is ready
+        if job_status['status'] == 'ready':
+            try:
+                from session_initializer import SessionInitializer
+                session_path = SessionInitializer.get_session_path(guid)
+                status_file = session_path / "status.json"
+
+                if status_file.exists():
+                    import json
+                    detailed_status = json.loads(status_file.read_text())
+
+                    # Merge job status with detailed status
+                    response = {
+                        "success": True,
+                        "guid": guid,
+                        **job_status,
+                        **detailed_status
+                    }
+
+                    logger.info(f"Detailed status: {detailed_status.get('status')} - {detailed_status.get('message')}")
+                    return response
+            except Exception as e:
+                logger.warning(f"Could not read status.json: {e}")
+
+        # Return basic job status
+        response = {
+            "success": True,
+            "guid": guid,
+            **job_status
+        }
+
+        logger.info(f"Status: {job_status['status']} ({job_status.get('progress', 0)}%)")
+        return response
+
+    except Exception as e:
+        logger.exception(f"Status check failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "guid": guid
+        }
 
 
 @app.post("/api/session/create")

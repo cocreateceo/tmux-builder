@@ -1,0 +1,40 @@
+version: "1.0"
+
+# Global variables available to all templates
+variables:
+  aws_profile: "sunware"
+  max_cost_threshold: 100
+  default_region: "us-east-1"
+  clarification_strategy: "autonomous"
+
+# System prompts for different modes
+system_prompts:
+  autonomous_agent:
+    template_file: "templates/system_prompts/autonomous_agent.txt"
+    description: "Main autonomous build agent system prompt"
+    variables_required:
+      - guid
+      - email
+      - phone
+      - user_request
+      - session_path
+      - aws_profile
+
+  refinement_mode:
+    template_file: "templates/system_prompts/refinement_mode.txt"
+    description: "System prompt for post-deployment refinements"
+    variables_required:
+      - guid
+      - deployment_url
+      - original_request
+      - refinement_request
+      - session_path
+
+  debug_mode:
+    template_file: "templates/system_prompts/debug_mode.txt"
+    description: "System prompt for debugging failed deployments"
+    variables_required:
+      - guid
+      - error_log
+      - session_path
+      - aws_profile

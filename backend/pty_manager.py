@@ -151,6 +151,9 @@ class PTYSession:
             return False
 
         try:
+            # PTY expects bytes, encode string if needed
+            if isinstance(data, str):
+                data = data.encode('utf-8')
             self.pty.write(data)
             logger.debug(f"Sent {len(data)} bytes to PTY {self.guid}")
             return True

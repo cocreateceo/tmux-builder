@@ -15,6 +15,7 @@ from config import API_HOST, API_PORT, DEFAULT_USER, ACTIVE_SESSIONS_DIR
 from session_controller import SessionController
 from background_worker import BackgroundWorker
 from guid_generator import generate_guid
+from mcp_server import start_server_background, stop_server
 
 # Configure logging
 logging.basicConfig(
@@ -44,6 +45,26 @@ session_controller: Optional[SessionController] = None
 
 # Initialize background worker
 background_worker = BackgroundWorker()
+
+
+# ============================================================================
+# Startup and Shutdown Events
+# ============================================================================
+
+@app.on_event("startup")
+async def startup_event():
+    """Start the MCP WebSocket server on app startup."""
+    logger.info("Starting MCP WebSocket server on port 8001...")
+    await start_server_background(ws_port=8001)
+    logger.info("MCP WebSocket server started!")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop the MCP WebSocket server on app shutdown."""
+    logger.info("Stopping MCP WebSocket server...")
+    await stop_server()
+    logger.info("MCP WebSocket server stopped!")
 
 
 # ============================================================================

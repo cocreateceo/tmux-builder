@@ -263,31 +263,87 @@ async def get_status():
 @app.post("/api/chat")
 async def chat(chat_message: ChatMessage):
     """
-    Send a message to Claude and get response.
+    Send a message to Claude via PTY and capture response.
 
-    DEPRECATED: This endpoint uses the old marker-based protocol.
-    For real-time interaction, use the Terminal mode with WebSocket at /ws/{guid}.
+    Note: For real-time streaming, use Terminal mode with WebSocket at /ws/{guid}.
+    This endpoint provides a request/response interface but with limitations.
     """
-    logger.info("=== CHAT MESSAGE (DEPRECATED) ===")
+    logger.info("=== CHAT MESSAGE ===")
     logger.info(f"Message: {chat_message.message[:100]}...")
-    logger.warning("Chat endpoint is deprecated. Use Terminal mode with WebSocket for real-time interaction.")
 
-    # Return deprecation notice
-    return ChatResponse(
-        success=True,
-        response=(
-            "⚠️ **Chat mode is deprecated.**\n\n"
-            "Please switch to **Terminal mode** for full interactive experience:\n"
-            "1. Click the 'Terminal' button in the header\n"
-            "2. Click 'New Session' to create a terminal session\n"
-            "3. Type directly in the terminal for real-time interaction\n\n"
-            "Terminal mode provides:\n"
-            "- Real-time output streaming\n"
-            "- Full terminal control (Ctrl+C, arrow keys, etc.)\n"
-            "- WebSocket-based communication (no polling)\n"
-        ),
-        timestamp=datetime.utcnow().isoformat() + "Z"
-    )
+    try:
+        # Find an active PTY session or create one
+        active_sessions = pty_manager.list_sessions()
+
+        if not active_sessions:
+            # Create a default session
+            demo_guid = generate_guid(f"{DEFAULT_USER}@demo.local", "0000000000")
+            session = pty_manager.create_session(demo_guid)
+            if not session:
+                raise HTTPException(status_code=500, detail="Failed to create PTY session")
+            logger.info(f"Created new PTY session: {demo_guid}")
+            # Wait for Claude CLI to start
+            await asyncio.sleep(2.0)
+        else:
+            # Use first active session
+            session = pty_manager.get_session(active_sessions[0])
+            if not session:
+                raise HTTPException(status_code=500, detail="PTY session not available")
+            logger.info(f"Using existing PTY session: {active_sessions[0]}")
+
+        # Send the message to PTY (with newline to submit)
+        message_to_send = chat_message.message.strip() + "\n"
+        if not session.send_input(message_to_send):
+            raise HTTPException(status_code=500, detail="Failed to send message to PTY")
+
+        logger.info("Message sent to PTY, waiting for response...")
+
+        # Collect response output over a few seconds
+        # Note: This is imperfect - we can't know exactly when Claude is done
+        response_parts = []
+        max_wait = 10.0  # Maximum wait time in seconds
+        poll_interval = 0.1
+        idle_timeout = 2.0  # Stop if no output for this long
+        last_output_time = asyncio.get_event_loop().time()
+        start_time = last_output_time
+
+        while (asyncio.get_event_loop().time() - start_time) < max_wait:
+            output = await session.read_output_async()
+            if output:
+                response_parts.append(output)
+                last_output_time = asyncio.get_event_loop().time()
+                logger.debug(f"Received output chunk: {len(output)} bytes")
+            else:
+                # Check if we've been idle too long
+                if (asyncio.get_event_loop().time() - last_output_time) > idle_timeout:
+                    logger.info("Response collection complete (idle timeout)")
+                    break
+            await asyncio.sleep(poll_interval)
+
+        # Combine response
+        full_response = ''.join(response_parts)
+
+        # Clean up ANSI escape codes for display
+        import re
+        clean_response = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', full_response)
+        clean_response = clean_response.strip()
+
+        if not clean_response:
+            clean_response = "(No response captured. Try using Terminal mode for better interaction.)"
+
+        logger.info(f"Response captured: {len(clean_response)} chars")
+
+        return ChatResponse(
+            success=True,
+            response=clean_response,
+            timestamp=datetime.utcnow().isoformat() + "Z"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in chat: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/history")

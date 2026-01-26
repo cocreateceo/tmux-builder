@@ -146,7 +146,7 @@ class SessionInitializer:
                     'user_request': user_request,
                     'session_path': str(session_path),
                     'markers_path': str(markers_path),
-                    'aws_profile': 'sunware',
+                    'aws_profile': 'sunwaretech',
                     # New marker names
                     'ready_marker': str(ready_marker_path),
                     'ack_marker': str(ack_marker_path),

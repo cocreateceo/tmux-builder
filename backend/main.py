@@ -11,7 +11,6 @@ from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 
 from config import API_HOST, API_PORT, DEFAULT_USER
-from session_controller import SessionController
 from background_worker import BackgroundWorker
 from guid_generator import generate_guid
 from pty_manager import pty_manager, PTYSession
@@ -33,9 +32,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Global session controller (simplified for demo)
-session_controller: Optional[SessionController] = None
 
 # Initialize background worker
 background_worker = BackgroundWorker()
@@ -202,45 +198,38 @@ async def create_session():
     """
     Create a new Claude CLI session (simple chat UI flow).
 
-    For the full GUID-based flow, use /api/register instead.
-    This endpoint creates a session using a default GUID for demo purposes.
+    NOTE: Chat mode is deprecated. Use Terminal mode with WebSocket streaming instead.
+    This endpoint creates a PTY session but Chat functionality is limited.
+    For full interactive terminal, connect via WebSocket at /ws/{guid}.
     """
-    global session_controller
-
-    logger.info("=== CREATE SESSION REQUEST ===")
+    logger.info("=== CREATE SESSION REQUEST (DEPRECATED CHAT MODE) ===")
     logger.info(f"User: {DEFAULT_USER}")
+    logger.warning("Chat mode is deprecated. Use Terminal mode with WebSocket for full functionality.")
 
     try:
         # Generate a simple GUID for demo mode
         demo_guid = generate_guid(f"{DEFAULT_USER}@demo.local", "0000000000")
         logger.info(f"Demo GUID: {demo_guid}")
 
-        # Use SessionInitializer for proper marker-based handshake
-        from session_initializer import SessionInitializer
-        initializer = SessionInitializer()
+        # Create PTY session directly (no tmux/marker-based approach)
+        session = pty_manager.get_session(demo_guid)
+        if session is None:
+            session = pty_manager.create_session(demo_guid)
 
-        logger.info("Initializing session with marker handshake...")
-        result = initializer.initialize_session(
-            guid=demo_guid,
-            email=f"{DEFAULT_USER}@demo.local",
-            phone="0000000000",
-            user_request="Interactive chat session"
-        )
-
-        if result.get('success'):
-            # Create SessionController for message handling
-            session_controller = SessionController(guid=demo_guid)
-            logger.info(f"✓ Session created successfully: {session_controller.session_name}")
+        if session and session.is_alive():
+            logger.info(f"✓ PTY session created: {demo_guid}")
             return {
                 "success": True,
-                "message": "Session created successfully",
-                "session_name": session_controller.session_name,
-                "guid": demo_guid
+                "message": "Session created. Note: Chat mode is deprecated. Use Terminal mode for full interactive experience.",
+                "session_name": f"pty_{demo_guid}",
+                "guid": demo_guid,
+                "websocket_url": f"/ws/{demo_guid}",
+                "deprecated": True,
+                "recommendation": "Switch to Terminal mode for real-time WebSocket streaming"
             }
         else:
-            error_msg = result.get('error', 'Unknown error')
-            logger.error(f"Failed to initialize session: {error_msg}")
-            raise HTTPException(status_code=500, detail=error_msg)
+            logger.error("Failed to create PTY session")
+            raise HTTPException(status_code=500, detail="Failed to create PTY session")
 
     except Exception as e:
         logger.error(f"Error creating session: {e}", exc_info=True)
@@ -252,58 +241,53 @@ async def get_status():
     """Get session status."""
     logger.info("=== STATUS CHECK ===")
 
-    if session_controller is None:
-        logger.info("No session controller exists")
+    # Check for any active PTY sessions
+    active_sessions = pty_manager.list_sessions()
+
+    if not active_sessions:
+        logger.info("No active PTY sessions")
         return SessionStatus(
             ready=False,
             session_active=False,
-            message="No session created"
+            message="No active sessions. Use Terminal mode for WebSocket streaming."
         )
 
-    is_active = session_controller.is_active()
-    logger.info(f"Session active: {is_active}, Session name: {session_controller.session_name}")
-
+    logger.info(f"Active PTY sessions: {active_sessions}")
     return SessionStatus(
-        ready=is_active,
-        session_active=is_active,
-        message="Session ready" if is_active else "Session inactive"
+        ready=True,
+        session_active=True,
+        message=f"Session ready. {len(active_sessions)} active PTY session(s). Use Terminal mode for best experience."
     )
 
 
 @app.post("/api/chat")
 async def chat(chat_message: ChatMessage):
-    """Send a message to Claude and get response."""
-    logger.info("=== CHAT MESSAGE ===")
+    """
+    Send a message to Claude and get response.
+
+    DEPRECATED: This endpoint uses the old marker-based protocol.
+    For real-time interaction, use the Terminal mode with WebSocket at /ws/{guid}.
+    """
+    logger.info("=== CHAT MESSAGE (DEPRECATED) ===")
     logger.info(f"Message: {chat_message.message[:100]}...")
+    logger.warning("Chat endpoint is deprecated. Use Terminal mode with WebSocket for real-time interaction.")
 
-    if session_controller is None:
-        logger.error("No active session")
-        raise HTTPException(status_code=400, detail="No active session")
-
-    if not session_controller.is_active():
-        logger.error("Session is not active")
-        raise HTTPException(status_code=400, detail="Session is not active")
-
-    try:
-        # Send message and wait for response
-        logger.info("Sending message to Claude...")
-        response = session_controller.send_message(chat_message.message)
-        logger.info(f"Got response: {response[:100] if response else 'None'}...")
-
-        if response is None:
-            logger.error("Failed to get response")
-            raise HTTPException(status_code=500, detail="Failed to get response")
-
-        logger.info("✓ Response sent successfully")
-        return ChatResponse(
-            success=True,
-            response=response,
-            timestamp=datetime.utcnow().isoformat() + "Z"
-        )
-
-    except Exception as e:
-        logger.error(f"Error in chat: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    # Return deprecation notice
+    return ChatResponse(
+        success=True,
+        response=(
+            "⚠️ **Chat mode is deprecated.**\n\n"
+            "Please switch to **Terminal mode** for full interactive experience:\n"
+            "1. Click the 'Terminal' button in the header\n"
+            "2. Click 'New Session' to create a terminal session\n"
+            "3. Type directly in the terminal for real-time interaction\n\n"
+            "Terminal mode provides:\n"
+            "- Real-time output streaming\n"
+            "- Full terminal control (Ctrl+C, arrow keys, etc.)\n"
+            "- WebSocket-based communication (no polling)\n"
+        ),
+        timestamp=datetime.utcnow().isoformat() + "Z"
+    )
 
 
 @app.get("/api/history")
@@ -318,20 +302,18 @@ async def get_history():
 
 @app.post("/api/clear")
 async def clear_session():
-    """Clear the current session."""
-    global session_controller
-
-    if session_controller is None:
-        raise HTTPException(status_code=400, detail="No active session")
-
+    """Clear all PTY sessions."""
     try:
-        success = session_controller.clear_session()
+        # Kill all PTY sessions
+        active_sessions = pty_manager.list_sessions()
+        for guid in active_sessions:
+            pty_manager.kill_session(guid)
 
-        if success:
-            session_controller = None
-            return {"success": True, "message": "Session cleared"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to clear session")
+        return {
+            "success": True,
+            "message": f"Cleared {len(active_sessions)} session(s)",
+            "cleared_count": len(active_sessions)
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

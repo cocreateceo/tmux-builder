@@ -333,6 +333,8 @@ async def chat(chat_message: ChatMessage):
             clean_response = "(No response captured. Try using Terminal mode for better interaction.)"
 
         logger.info(f"Response captured: {len(clean_response)} chars")
+        logger.info(f"Raw response: {repr(full_response[:500])}")  # Log first 500 chars
+        logger.info(f"Clean response: {repr(clean_response[:500])}")
 
         return ChatResponse(
             success=True,
@@ -448,6 +450,7 @@ async def websocket_terminal(websocket: WebSocket, guid: str):
 
                 output = await session.read_output_async()
                 if output:
+                    logger.info(f"PTY output ({len(output)} bytes): {repr(output[:100])}")
                     # Send to all connected clients for this session
                     for ws in active_connections.get(guid, []):
                         try:
@@ -455,8 +458,8 @@ async def websocket_terminal(websocket: WebSocket, guid: str):
                                 "type": "output",
                                 "data": output
                             })
-                        except Exception:
-                            pass  # Client disconnected
+                        except Exception as e:
+                            logger.error(f"Failed to send to WebSocket: {e}")
 
                 await asyncio.sleep(0.01)  # Small delay to prevent busy loop
 
@@ -479,8 +482,9 @@ async def websocket_terminal(websocket: WebSocket, guid: str):
                 if msg_type == "input":
                     # Send input to PTY
                     input_data = data.get("data", "")
-                    session.send_input(input_data)
-                    logger.debug(f"Received input: {len(input_data)} bytes")
+                    logger.info(f"WebSocket input: {repr(input_data)}")
+                    result = session.send_input(input_data)
+                    logger.info(f"Sent to PTY: {result}")
 
                 elif msg_type == "resize":
                     # Resize terminal

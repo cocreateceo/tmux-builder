@@ -80,6 +80,24 @@ class PTYSession:
             )
 
             logger.info(f"PTY started with PID: {self.pty.pid}")
+
+            # Wait a moment for Claude to initialize
+            import time
+            time.sleep(1.0)
+
+            # Try to read any initial output (welcome message, etc.)
+            try:
+                initial_output = self.pty.read_nonblocking(size=4096, timeout=2.0)
+                if initial_output:
+                    if isinstance(initial_output, bytes):
+                        initial_output = initial_output.decode('utf-8', errors='replace')
+                    logger.info(f"Initial PTY output: {repr(initial_output[:200])}")
+                    self.output_buffer.append(initial_output)
+                else:
+                    logger.warning("No initial output from Claude CLI")
+            except Exception as e:
+                logger.warning(f"Error reading initial output: {e}")
+
             return True
 
         except Exception as e:

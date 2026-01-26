@@ -1,18 +1,18 @@
 """
-High-level session orchestration with file-based REPL protocol.
+High-level session orchestration with MCP-based protocol.
 
 Message Loop Protocol:
-1. Backend clears ack.marker and completed.marker
-2. Backend writes prompt to prompt.txt
-3. Backend sends: "Read prompt.txt, create ack.marker, process, create completed.marker"
-4. Claude creates ack.marker (prompt received)
-5. Claude updates status.json as it works
-6. Claude creates completed.marker when done
-7. Backend reads response
+1. Backend writes prompt to prompt.txt
+2. Backend sends instruction with MCP tool usage instructions
+3. Claude calls notify_ack() via MCP
+4. Claude processes, calling send_progress/send_status
+5. Claude calls send_response() with content
+6. Claude calls notify_complete()
+7. Backend reads response from MCP cache
 """
 
+import asyncio
 import json
-import time
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -21,77 +21,66 @@ from typing import Optional, List, Dict
 from config import (
     SESSION_PREFIX,
     CHAT_HISTORY_FILE,
-    READY_MARKER,
-    ACK_MARKER,
-    COMPLETED_MARKER,
     PROMPT_FILE,
     STATUS_FILE,
     ACTIVE_SESSIONS_DIR,
-    get_markers_path,
-    get_marker_file,
     get_prompt_file,
     get_status_file,
-    ACK_MARKER_TIMEOUT,
-    COMPLETED_MARKER_TIMEOUT,
 )
 from tmux_helper import TmuxHelper
-from marker_utils import (
-    wait_for_marker,
-    clear_for_new_message,
-    delete_marker,
+from mcp_server import (
+    register_session,
+    reset_session,
+    wait_for_ack,
+    wait_for_response,
+    get_response,
 )
 
 logger = logging.getLogger(__name__)
 
+# Timeouts for MCP-based protocol
+MCP_ACK_TIMEOUT = 30  # seconds
+MCP_RESPONSE_TIMEOUT = 300  # seconds
+
 
 class SessionController:
-    """Manages Claude CLI sessions via tmux with marker-based protocol."""
+    """Manages Claude CLI sessions via tmux with MCP-based protocol."""
 
     def __init__(self, guid: str):
-        """
-        Initialize SessionController for a GUID-based session.
-
-        Args:
-            guid: Session GUID (from SessionInitializer)
-        """
+        """Initialize SessionController for a GUID-based session."""
         logger.info(f"Initializing SessionController for GUID: {guid}")
         self.guid = guid
         self.session_path = ACTIVE_SESSIONS_DIR / guid
-        self.markers_path = get_markers_path(guid)
         self.chat_history_path = self.session_path / CHAT_HISTORY_FILE
         self.prompt_file_path = get_prompt_file(guid)
         self.status_file_path = get_status_file(guid)
         self.session_name = f"{SESSION_PREFIX}_{guid}"
 
+        # Register session with MCP server
+        register_session(guid)
+
         logger.info(f"Session path: {self.session_path}")
         logger.info(f"Session name: {self.session_name}")
 
-    def send_message(self, message: str, timeout: float = COMPLETED_MARKER_TIMEOUT) -> Optional[str]:
+    def send_message(self, message: str, timeout: float = MCP_RESPONSE_TIMEOUT) -> Optional[str]:
         """
-        Send a message to Claude using file-based REPL protocol.
+        Send a message to Claude using MCP-based protocol.
 
         Protocol:
-        1. Clear ack.marker and completed.marker
+        1. Reset MCP session state
         2. Write message to prompt.txt
-        3. Send instruction to read and process
-        4. Wait for ack.marker (prompt received)
-        5. Wait for completed.marker (processing done)
-        6. Read response from status.json or chat history
-
-        Args:
-            message: User message to send
-            timeout: Max seconds to wait for completion
-
-        Returns:
-            Assistant's response or None if error/timeout
+        3. Send instruction with MCP tool usage
+        4. Wait for notify_ack via MCP
+        5. Wait for notify_complete via MCP
+        6. Read response from MCP cache
         """
-        logger.info("=== SENDING MESSAGE ===")
+        logger.info("=== SENDING MESSAGE (MCP Protocol) ===")
         logger.info(f"Message: {message[:100]}...")
 
         try:
-            # Step 1: Clear markers for new message
-            logger.info("Step 1: Clearing markers...")
-            clear_for_new_message(self.guid)
+            # Step 1: Reset MCP session state
+            logger.info("Step 1: Resetting MCP session state...")
+            reset_session(self.guid)
 
             # Step 2: Append user message to history
             logger.info("Step 2: Appending user message to history...")
@@ -101,71 +90,72 @@ class SessionController:
             logger.info("Step 3: Writing prompt to file...")
             self.prompt_file_path.parent.mkdir(parents=True, exist_ok=True)
             self.prompt_file_path.write_text(message)
-            logger.info(f"Prompt written to: {self.prompt_file_path}")
 
-            # Step 4: Update status to processing
-            self._update_status("processing", 10, "Processing user request")
+            # Step 4: Build instruction with MCP tool usage
+            instruction = self._build_mcp_instruction()
 
-            # Step 5: Get marker paths for instruction
-            ack_marker_path = get_marker_file(self.guid, ACK_MARKER)
-            completed_marker_path = get_marker_file(self.guid, COMPLETED_MARKER)
+            # Step 5: Send instruction via tmux
+            logger.info("Step 5: Sending instruction via tmux...")
+            if not TmuxHelper.send_instruction(self.session_name, instruction):
+                logger.error("Failed to send instruction via tmux")
+                return None
 
-            # Step 6: Send instruction to Claude with retry logic
-            # Single-line instruction (avoid multi-line issues with tmux)
-            instruction = (
-                f"Read the user message from {self.prompt_file_path}, process it, "
-                f"save response to {self.chat_history_path}, "
-                f"then create {ack_marker_path} and {completed_marker_path} when done."
-            )
-
-            max_retries = 3
-            ack_received = False
-
-            for attempt in range(1, max_retries + 1):
-                logger.info(f"Step 6: Attempt {attempt}/{max_retries} - Sending process instruction...")
-
-                # Clear stale ack marker before retry
-                delete_marker(self.guid, ACK_MARKER)
-
-                if not TmuxHelper.send_instruction(self.session_name, instruction):
-                    logger.error("Failed to send instruction via tmux")
-                    return None
-
-                # Wait for ack.marker
-                logger.info(f"Waiting for ack.marker (timeout: {ACK_MARKER_TIMEOUT}s)...")
-                if wait_for_marker(self.guid, ACK_MARKER, timeout=ACK_MARKER_TIMEOUT):
-                    logger.info("ack.marker received")
-                    ack_received = True
-                    break
-                else:
-                    logger.warning(f"Attempt {attempt} failed - ack.marker not received")
-                    if attempt < max_retries:
-                        retry_delay = 3.0 * attempt
-                        logger.info(f"Retrying in {retry_delay}s...")
-                        time.sleep(retry_delay)
+            # Step 6: Wait for ack via MCP (async in sync context)
+            logger.info(f"Step 6: Waiting for MCP ack (timeout: {MCP_ACK_TIMEOUT}s)...")
+            loop = asyncio.new_event_loop()
+            try:
+                ack_received = loop.run_until_complete(
+                    wait_for_ack(self.guid, timeout=MCP_ACK_TIMEOUT)
+                )
+            finally:
+                loop.close()
 
             if not ack_received:
-                logger.error(f"Failed to receive ack.marker after {max_retries} attempts")
-                return "Claude did not acknowledge the message after multiple attempts. Please try again."
+                logger.error("Failed to receive MCP ack")
+                return "Claude did not acknowledge the message. Please try again."
 
-            # Step 8: Wait for completed.marker
-            logger.info(f"Step 8: Waiting for completed.marker (timeout: {timeout}s)...")
-            if not wait_for_marker(self.guid, COMPLETED_MARKER, timeout=timeout):
-                logger.error("Timeout waiting for completed.marker")
-                return "Timeout waiting for response. Claude may still be processing."
-            logger.info("completed.marker received")
+            logger.info("MCP ack received!")
 
-            # Step 9: Read response
-            logger.info("Step 9: Reading response...")
-            response = self._get_latest_assistant_response()
-            logger.info(f"Response: {response[:100] if response else 'None'}...")
+            # Step 7: Wait for response via MCP
+            logger.info(f"Step 7: Waiting for MCP response (timeout: {timeout}s)...")
+            loop = asyncio.new_event_loop()
+            try:
+                response = loop.run_until_complete(
+                    wait_for_response(self.guid, timeout=timeout)
+                )
+            finally:
+                loop.close()
 
+            if not response:
+                logger.error("Failed to receive MCP response")
+                return "Timeout waiting for response."
+
+            # Step 8: Save to chat history
+            logger.info("Step 8: Saving response to history...")
+            self._append_to_history("assistant", response)
+
+            logger.info(f"Response received: {response[:100]}...")
             return response
 
         except Exception as e:
             logger.error(f"Error sending message: {e}", exc_info=True)
-            self._update_status("error", 0, str(e))
             return None
+
+    def _build_mcp_instruction(self) -> str:
+        """Build instruction telling Claude to use MCP tools."""
+        return f"""Read the user message from {self.prompt_file_path}.
+
+IMPORTANT: Use your MCP tools to communicate progress:
+
+1. IMMEDIATELY call: notify_ack(guid="{self.guid}")
+2. As you work, call: send_progress(guid="{self.guid}", percent=N) where N is 0-100
+3. For status updates: send_status(guid="{self.guid}", message="...", phase="analyzing|planning|implementing|deploying|verifying")
+4. When done, call: send_response(guid="{self.guid}", content="your full response here")
+5. Finally call: notify_complete(guid="{self.guid}", success=true)
+
+If you encounter errors: notify_error(guid="{self.guid}", error="description", recoverable=false)
+
+Now process the user's request and use these MCP tools to report your progress."""
 
     def get_chat_history(self) -> List[Dict]:
         """Load and return chat history from JSONL file."""
@@ -207,13 +197,12 @@ class SessionController:
             if self.chat_history_path.exists():
                 self.chat_history_path.unlink()
 
-            # Clear markers
-            for marker in [READY_MARKER, ACK_MARKER, COMPLETED_MARKER]:
-                delete_marker(self.guid, marker)
-
             # Clear prompt file
             if self.prompt_file_path.exists():
                 self.prompt_file_path.unlink()
+
+            # Reset MCP session
+            reset_session(self.guid)
 
             logger.info(f"Session {self.guid} cleared")
             return True
@@ -238,22 +227,6 @@ class SessionController:
         with open(self.chat_history_path, 'a', encoding='utf-8') as f:
             f.write(json.dumps(message) + '\n')
 
-    def _get_latest_assistant_response(self) -> str:
-        """Read the latest assistant response from chat history."""
-        messages = self.get_chat_history()
-
-        # Find last assistant message
-        for msg in reversed(messages):
-            if msg.get('role') == 'assistant':
-                return msg.get('content', '')
-
-        # Fallback: check status.json for response
-        status = self.get_status()
-        if status.get('state') == 'completed' and status.get('response'):
-            return status.get('response')
-
-        return "No response received."
-
     def _update_status(self, state: str, progress: int, message: str):
         """Update status.json with current state."""
         try:
@@ -273,7 +246,7 @@ class SessionController:
                         if key in existing:
                             status[key] = existing[key]
                 except Exception:
-                    pass  # Ignore JSON parse errors
+                    pass
 
             self.status_file_path.write_text(json.dumps(status, indent=2))
         except Exception as e:

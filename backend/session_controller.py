@@ -1,7 +1,9 @@
 """
-High-level session orchestration with file-based REPL protocol.
+DEPRECATED: This module uses the legacy marker-based protocol.
 
-Message Loop Protocol:
+For streaming sessions, use stream_controller.py instead.
+
+Legacy Message Loop Protocol (marker-based):
 1. Backend clears ack.marker and completed.marker
 2. Backend writes prompt to prompt.txt
 3. Backend sends: "Read prompt.txt, create ack.marker, process, create completed.marker"
@@ -9,7 +11,19 @@ Message Loop Protocol:
 5. Claude updates status.json as it works
 6. Claude creates completed.marker when done
 7. Backend reads response
+
+New Protocol (streaming):
+- Use stream_controller.py with WebSocket
+- Real-time output via PTY
+- No markers needed
 """
+
+import warnings
+warnings.warn(
+    "session_controller.py is deprecated. Use stream_controller.py for PTY streaming.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 import json
 import time

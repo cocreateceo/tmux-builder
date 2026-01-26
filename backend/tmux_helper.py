@@ -1,8 +1,15 @@
 """
-Low-level tmux operations for managing Claude CLI sessions.
+DEPRECATED: Low-level tmux operations for managing Claude CLI sessions.
 
-CRITICAL: This module implements the exact SmartBuild pattern for tmux command sending.
-Do not modify timing or command structure without thorough testing.
+This module is deprecated in favor of PTY streaming (pty_manager.py).
+Kept for backwards compatibility with the main branch.
+
+For new code, use:
+- pty_manager.py for PTY session management
+- stream_controller.py for high-level streaming control
+- WebSocket endpoint /ws/{guid} for real-time output
+
+Legacy note: This module implements the SmartBuild pattern for tmux command sending.
 """
 
 import subprocess

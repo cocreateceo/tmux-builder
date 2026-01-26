@@ -106,22 +106,28 @@ MAX_CONCURRENT_JOBS = 4
 # Session prefix (for chat-based sessions)
 SESSION_PREFIX = TMUX_SESSION_PREFIX
 
-# Marker timeouts and polling (for chat UI)
+# ==============================================
+# DEPRECATED: Marker-based protocol configuration
+# Use PTY streaming (pty_manager.py) instead for new code
+# Kept for backwards compatibility with main branch
+# ==============================================
+
+# Marker timeouts and polling (DEPRECATED - use WebSocket streaming)
 MARKER_TIMEOUT = 60  # seconds to wait for response
 MARKER_POLL_INTERVAL = 0.5  # seconds between checks
 
-# Specific marker timeouts
+# Specific marker timeouts (DEPRECATED)
 # NOTE: WSL has ~6s delay for file visibility across process boundaries
 READY_MARKER_TIMEOUT = 30   # seconds to wait for Claude to be ready
 ACK_MARKER_TIMEOUT = 30     # seconds to wait for prompt acknowledgment (was 10, increased for WSL)
 COMPLETED_MARKER_TIMEOUT = 300  # seconds to wait for task completion (5 min)
 
-# Marker file names (file-based REPL protocol)
+# Marker file names (DEPRECATED - file-based REPL protocol)
 READY_MARKER = "ready.marker"          # Claude creates when ready for input
 ACK_MARKER = "ack.marker"              # Claude creates when prompt received
 COMPLETED_MARKER = "completed.marker"  # Claude creates when task done
 
-# Legacy markers (for backwards compatibility)
+# Legacy markers (DEPRECATED)
 INITIALIZED_MARKER = "initialized.marker"
 PROCESSING_MARKER = "processing.marker"
 

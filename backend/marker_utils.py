@@ -1,15 +1,27 @@
 """
-Marker file utilities for file-based REPL protocol.
+DEPRECATED: Marker file utilities for file-based REPL protocol.
 
-This module provides helper functions for the marker-based handshake
-protocol between the backend and Claude CLI.
+This module is deprecated in favor of PTY streaming (pty_manager.py).
+Kept for backwards compatibility with the main branch.
 
-Protocol:
+For new code, use:
+- pty_manager.py for PTY session management
+- stream_controller.py for high-level streaming control
+- WebSocket endpoint /ws/{guid} for real-time output
+
+Legacy Protocol (marker-based):
 1. ready.marker   - Claude creates when ready for input
 2. ack.marker     - Claude creates when prompt received
 3. completed.marker - Claude creates when task done
 4. status.json    - Claude updates with progress
 """
+
+import warnings
+warnings.warn(
+    "marker_utils.py is deprecated. Use pty_manager.py for PTY streaming.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 import time
 import logging

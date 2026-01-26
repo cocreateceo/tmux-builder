@@ -1,8 +1,10 @@
-"""FastAPI backend for tmux-builder chat interface."""
+"""FastAPI backend for tmux-builder with WebSocket streaming."""
 
 import logging
 import os
-from fastapi import FastAPI, HTTPException
+import asyncio
+import json
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict
@@ -12,6 +14,7 @@ from config import API_HOST, API_PORT, DEFAULT_USER
 from session_controller import SessionController
 from background_worker import BackgroundWorker
 from guid_generator import generate_guid
+from pty_manager import pty_manager, PTYSession
 
 # Configure logging
 logging.basicConfig(
@@ -334,6 +337,219 @@ async def clear_session():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==============================================
+# WebSocket Streaming Endpoint
+# ==============================================
+
+# Track active WebSocket connections per session
+active_connections: Dict[str, List[WebSocket]] = {}
+
+
+@app.websocket("/ws/{guid}")
+async def websocket_terminal(websocket: WebSocket, guid: str):
+    """
+    WebSocket endpoint for real-time terminal streaming.
+
+    Protocol:
+    - Client connects to /ws/{guid}
+    - Server streams PTY output to client
+    - Client sends input which goes to PTY
+    - Supports resize, reconnection with buffer replay
+    """
+    await websocket.accept()
+    logger.info(f"WebSocket connected: {guid}")
+
+    # Track this connection
+    if guid not in active_connections:
+        active_connections[guid] = []
+    active_connections[guid].append(websocket)
+
+    # Get or create PTY session
+    session = pty_manager.get_session(guid)
+    created_new = False
+
+    if session is None:
+        logger.info(f"Creating new PTY session for {guid}")
+        session = pty_manager.create_session(guid)
+        created_new = True
+
+        if session is None:
+            await websocket.send_json({
+                "type": "error",
+                "message": "Failed to create PTY session"
+            })
+            await websocket.close()
+            return
+    else:
+        # Send buffered output for reconnection
+        buffer = session.get_buffer()
+        if buffer:
+            await websocket.send_json({
+                "type": "output",
+                "data": buffer
+            })
+            logger.info(f"Sent {len(buffer)} bytes of buffered output")
+
+    # Notify client session is ready
+    await websocket.send_json({
+        "type": "ready",
+        "guid": guid,
+        "new_session": created_new
+    })
+
+    # Start output reading task
+    async def read_pty_output():
+        """Read PTY output and send to all connected clients."""
+        while True:
+            try:
+                if not session.is_alive():
+                    logger.info(f"PTY session ended: {guid}")
+                    break
+
+                output = await session.read_output_async()
+                if output:
+                    # Send to all connected clients for this session
+                    for ws in active_connections.get(guid, []):
+                        try:
+                            await ws.send_json({
+                                "type": "output",
+                                "data": output
+                            })
+                        except Exception:
+                            pass  # Client disconnected
+
+                await asyncio.sleep(0.01)  # Small delay to prevent busy loop
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error reading PTY output: {e}")
+                break
+
+    # Start the output reader
+    output_task = asyncio.create_task(read_pty_output())
+
+    try:
+        # Handle incoming messages from client
+        while True:
+            try:
+                data = await websocket.receive_json()
+                msg_type = data.get("type")
+
+                if msg_type == "input":
+                    # Send input to PTY
+                    input_data = data.get("data", "")
+                    session.send_input(input_data)
+                    logger.debug(f"Received input: {len(input_data)} bytes")
+
+                elif msg_type == "resize":
+                    # Resize terminal
+                    rows = data.get("rows", 40)
+                    cols = data.get("cols", 120)
+                    session.resize(rows, cols)
+                    logger.debug(f"Resized to {rows}x{cols}")
+
+                elif msg_type == "ping":
+                    # Keepalive
+                    await websocket.send_json({"type": "pong"})
+
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected: {guid}")
+                break
+
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+
+    finally:
+        # Cleanup
+        output_task.cancel()
+        try:
+            await output_task
+        except asyncio.CancelledError:
+            pass
+
+        # Remove from active connections
+        if guid in active_connections:
+            active_connections[guid] = [
+                ws for ws in active_connections[guid] if ws != websocket
+            ]
+            if not active_connections[guid]:
+                del active_connections[guid]
+
+        logger.info(f"WebSocket cleanup complete: {guid}")
+
+
+@app.post("/api/stream/create/{guid}")
+async def create_stream_session(guid: str):
+    """
+    Create a new PTY streaming session.
+
+    Returns session info for WebSocket connection.
+    """
+    logger.info(f"Creating stream session: {guid}")
+
+    # Check if session already exists
+    existing = pty_manager.get_session(guid)
+    if existing and existing.is_alive():
+        return {
+            "success": True,
+            "guid": guid,
+            "message": "Session already exists",
+            "websocket_url": f"/ws/{guid}"
+        }
+
+    # Create new session
+    session = pty_manager.create_session(guid)
+    if session:
+        return {
+            "success": True,
+            "guid": guid,
+            "message": "Session created",
+            "websocket_url": f"/ws/{guid}"
+        }
+
+    return {
+        "success": False,
+        "error": "Failed to create session"
+    }
+
+
+@app.delete("/api/stream/{guid}")
+async def delete_stream_session(guid: str):
+    """Kill a PTY streaming session."""
+    logger.info(f"Deleting stream session: {guid}")
+
+    # Close all WebSocket connections for this session
+    for ws in active_connections.get(guid, []):
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+    # Kill PTY session
+    success = pty_manager.kill_session(guid)
+
+    return {
+        "success": success,
+        "guid": guid,
+        "message": "Session deleted" if success else "Session not found"
+    }
+
+
+@app.get("/api/stream/list")
+async def list_stream_sessions():
+    """List all active PTY streaming sessions."""
+    sessions = pty_manager.list_sessions()
+    return {
+        "sessions": sessions,
+        "count": len(sessions)
+    }
+
+
+# ==============================================
+# Server Startup
+# ==============================================
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -341,6 +557,7 @@ if __name__ == "__main__":
     print("TMUX BUILDER BACKEND SERVER")
     print("="*60)
     print(f"Starting API on {API_HOST}:{API_PORT}")
+    print(f"WebSocket endpoint: ws://localhost:{API_PORT}/ws/{{guid}}")
     print(f"Frontend CORS: http://localhost:5173")
     print(f"Default User: {DEFAULT_USER}")
     print("="*60 + "\n")

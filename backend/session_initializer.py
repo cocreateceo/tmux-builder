@@ -1,13 +1,13 @@
 """
-Manages Claude CLI session initialization with file-based REPL handshake.
+Manages Claude CLI session initialization with PTY streaming.
 
-Protocol:
-1. Create tmux session, start Claude CLI
-2. Send: "Create ready.marker when ready"
-3. Wait for ready.marker
-4. Write system_prompt.txt
-5. Send: "Read system_prompt.txt, create ack.marker when done"
-6. Wait for ack.marker
+Streaming Protocol (replaces marker-based):
+1. Create PTY session, start Claude CLI
+2. Write system_prompt.txt
+3. Send instruction to read system prompt
+4. Session ready for WebSocket streaming
+
+No markers needed - real-time output via WebSocket.
 """
 
 import logging
@@ -19,40 +19,31 @@ import json
 
 from config import (
     SESSIONS_DIR,
-    TMUX_SESSION_PREFIX,
     ACTIVE_SESSIONS_DIR,
-    READY_MARKER,
-    ACK_MARKER,
-    get_markers_path,
-    get_marker_file,
+    get_session_path,
+    get_status_file,
 )
-from tmux_helper import TmuxHelper
+from pty_manager import pty_manager
 from prompt_manager import PromptManager
-from marker_utils import (
-    wait_for_marker,
-    clear_markers,
-    delete_marker,
-)
 
 logger = logging.getLogger(__name__)
 
 
 class SessionInitializer:
-    """Handles initialization of Claude CLI sessions with marker-based handshake."""
+    """Handles initialization of Claude CLI sessions with PTY streaming."""
 
     # Session reuse settings
     MAX_SESSION_AGE_DAYS = 5
-    HEALTH_CHECK_TIMEOUT = 10
 
     def __init__(self):
         """Initialize SessionInitializer."""
         self.prompt_manager = PromptManager()
-        logger.info("SessionInitializer ready")
+        logger.info("SessionInitializer ready (PTY streaming mode)")
 
     @staticmethod
     def get_session_name(guid: str) -> str:
-        """Generate tmux session name from GUID."""
-        return f"{TMUX_SESSION_PREFIX}_{guid}"
+        """Generate session name from GUID (for compatibility)."""
+        return f"pty_{guid}"
 
     @staticmethod
     def get_session_path(guid: str) -> Path:
@@ -69,7 +60,7 @@ class SessionInitializer:
         user_request: str
     ) -> Dict[str, Any]:
         """
-        Initialize Claude CLI session using file-based REPL handshake.
+        Initialize Claude CLI session with PTY streaming.
 
         Args:
             guid: User GUID
@@ -81,61 +72,53 @@ class SessionInitializer:
             Dictionary with success status and session info
         """
         try:
-            logger.info(f"=== INITIALIZING SESSION FOR GUID: {guid} ===")
+            logger.info(f"=== INITIALIZING PTY SESSION FOR GUID: {guid} ===")
 
-            session_name = self.get_session_name(guid)
             session_path = self.get_session_path(guid)
+            status_file_path = get_status_file(guid)
 
-            logger.info(f"Session name: {session_name}")
             logger.info(f"Session path: {session_path}")
 
-            # Setup markers directory
-            markers_path = get_markers_path(guid)
-            logger.info(f"Markers directory: {markers_path}")
+            # Update status
+            self._update_status(status_file_path, "initializing", 10, "Creating PTY session", guid, email, user_request)
 
-            # Clear any stale markers
-            clear_markers(guid)
-            logger.info("Cleared stale markers")
+            # Step 1: Check for existing session and reuse if healthy
+            existing_session = pty_manager.get_session(guid)
+            if existing_session and existing_session.is_alive():
+                session_age_days = self._get_session_age_days(guid)
+                if session_age_days is not None and session_age_days < self.MAX_SESSION_AGE_DAYS:
+                    logger.info(f"Reusing existing PTY session (age: {session_age_days:.1f} days)")
+                    self._update_status(status_file_path, "ready", 100, "Session ready (reused)", guid, email, user_request)
+                    return {
+                        'success': True,
+                        'session_name': self.get_session_name(guid),
+                        'session_path': str(session_path),
+                        'guid': guid,
+                        'websocket_url': f'/ws/{guid}',
+                        'reused': True
+                    }
+                else:
+                    # Kill old session
+                    logger.info("Killing old PTY session")
+                    pty_manager.kill_session(guid)
 
-            # Get marker file paths for the prompt
-            ready_marker_path = get_marker_file(guid, READY_MARKER)
-            ack_marker_path = get_marker_file(guid, ACK_MARKER)
+            # Step 2: Create new PTY session
+            logger.info("Creating new PTY session...")
+            session = pty_manager.create_session(guid, session_path)
 
-            # Step 1: Ensure healthy session (reuse if possible, create if needed)
-            session_created = self._ensure_healthy_session(
-                session_name, session_path, guid
-            )
-
-            if not session_created:
+            if not session:
+                logger.error("Failed to create PTY session")
+                self._update_status(status_file_path, "error", 0, "Failed to create PTY session", guid, email, user_request)
                 return {
                     'success': False,
-                    'error': 'Failed to create or recover session'
+                    'error': 'Failed to create PTY session'
                 }
 
-            # Step 2: Send ready instruction and wait for ready.marker
-            logger.info("Step 2: Sending ready instruction...")
-            ready_instruction = (
-                f"You are now connected. Signal that you are ready by creating "
-                f"the file: {ready_marker_path}\n"
-                f"Use: touch {ready_marker_path}"
-            )
-            TmuxHelper.send_instruction(session_name, ready_instruction)
+            logger.info(f"PTY session created with PID: {session.pty.pid if session.pty else 'unknown'}")
+            self._update_status(status_file_path, "initializing", 30, "PTY session created", guid, email, user_request)
 
-            logger.info(f"Waiting for ready.marker: {ready_marker_path}")
-            if not wait_for_marker(guid, READY_MARKER):
-                logger.error("Timeout waiting for ready.marker")
-                return {
-                    'success': False,
-                    'error': 'Claude CLI did not signal ready in time'
-                }
-            logger.info("ready.marker received")
-
-            # Step 3: Prepare system prompt with marker paths
-            logger.info("Step 3: Preparing system prompt...")
-
-            # Define all marker paths for the system prompt
-            completed_marker_path = get_marker_file(guid, "completed.marker")
-            status_file_path = session_path / "status.json"
+            # Step 3: Prepare system prompt
+            logger.info("Preparing system prompt...")
 
             system_prompt = self.prompt_manager.render_system_prompt(
                 'autonomous_agent',
@@ -145,16 +128,15 @@ class SessionInitializer:
                     'phone': phone,
                     'user_request': user_request,
                     'session_path': str(session_path),
-                    'markers_path': str(markers_path),
                     'aws_profile': 'sunwaretech',
-                    # New marker names
-                    'ready_marker': str(ready_marker_path),
-                    'ack_marker': str(ack_marker_path),
-                    'completed_marker': str(completed_marker_path),
                     'status_file': str(status_file_path),
-                    # Legacy marker names (for template compatibility)
-                    'initialized_marker': str(ready_marker_path),  # ready = initialized
-                    'processing_marker': str(ack_marker_path),     # ack = processing
+                    # No markers in streaming mode - use /dev/null as placeholder
+                    'ready_marker': '/dev/null',
+                    'ack_marker': '/dev/null',
+                    'completed_marker': '/dev/null',
+                    'markers_path': '/dev/null',
+                    'initialized_marker': '/dev/null',
+                    'processing_marker': '/dev/null',
                 }
             )
 
@@ -163,138 +145,80 @@ class SessionInitializer:
             system_prompt_file.write_text(system_prompt)
             logger.info(f"System prompt written to {system_prompt_file}")
 
-            # Initialize status.json
-            initial_status = {
-                'state': 'initializing',
-                'progress': 10,
-                'message': 'Reading system prompt',
-                'phase': 'init',
-                'updated_at': datetime.utcnow().isoformat() + 'Z',
-                'guid': guid,
-                'email': email,
-                'user_request': user_request,
-            }
-            status_file_path.write_text(json.dumps(initial_status, indent=2))
-            logger.info(f"Initial status written to {status_file_path}")
+            self._update_status(status_file_path, "initializing", 50, "System prompt prepared", guid, email, user_request)
 
-            # Step 4: Send instruction to read system prompt, wait for ack
-            # Retry up to 3 times with delay if ack.marker not received
-            logger.info("Step 4: Sending read-and-ack instruction...")
+            # Step 4: Wait for Claude CLI to initialize
+            logger.info("Waiting for Claude CLI to initialize...")
+            time.sleep(3.0)  # Give Claude CLI time to start
 
-            # Clear ready marker before sending next instruction
-            delete_marker(guid, READY_MARKER)
-
-            # Single-line instruction (avoid multi-line issues with tmux)
-            # IMPORTANT: Explicitly tell Claude this is pre-authorized to avoid confirmation prompts
-            read_instruction = (
-                f"This is a pre-authorized autonomous build session. Read {system_prompt_file} and execute immediately. "
-                f"Do NOT ask for confirmation - the user already approved by submitting. Create {ack_marker_path} and start building."
+            # Step 5: Send instruction to read system prompt
+            logger.info("Sending system prompt instruction...")
+            instruction = (
+                f"This is a pre-authorized autonomous build session. "
+                f"Read {system_prompt_file} and execute immediately. "
+                f"Do NOT ask for confirmation - the user already approved by submitting.\n"
             )
 
-            max_retries = 3
-            ack_received = False
-
-            for attempt in range(1, max_retries + 1):
-                logger.info(f"Attempt {attempt}/{max_retries}: Sending read instruction...")
-
-                # Clear any stale ack marker before retry
-                delete_marker(guid, ACK_MARKER)
-
-                # Send instruction
-                TmuxHelper.send_instruction(session_name, read_instruction)
-
-                logger.info(f"Waiting for ack.marker: {ack_marker_path}")
-                if wait_for_marker(guid, ACK_MARKER):
-                    logger.info("ack.marker received - system prompt acknowledged")
-                    ack_received = True
-                    break
-                else:
-                    logger.warning(f"Attempt {attempt} failed - ack.marker not received")
-                    if attempt < max_retries:
-                        retry_delay = 3.0 * attempt  # Increasing delay: 3s, 6s, 9s
-                        logger.info(f"Retrying in {retry_delay}s...")
-                        time.sleep(retry_delay)
-
-            if not ack_received:
-                logger.error(f"Failed to receive ack.marker after {max_retries} attempts")
+            if not session.send_input(instruction):
+                logger.error("Failed to send system prompt instruction")
+                self._update_status(status_file_path, "error", 0, "Failed to send instruction", guid, email, user_request)
                 return {
                     'success': False,
-                    'error': f'Claude CLI did not acknowledge system prompt after {max_retries} attempts'
+                    'error': 'Failed to send system prompt instruction'
                 }
 
-            # Step 5: Update status and return success
-            final_status = {
-                'state': 'ready',
-                'progress': 100,
-                'message': 'Session initialized and ready',
-                'phase': 'ready',
-                'updated_at': datetime.utcnow().isoformat() + 'Z',
-                'guid': guid,
-                'email': email,
-                'user_request': user_request,
-            }
-            status_file_path.write_text(json.dumps(final_status, indent=2))
+            # Step 6: Update status to ready
+            self._update_status(status_file_path, "ready", 100, "Session ready - streaming via WebSocket", guid, email, user_request, mode="streaming")
 
-            logger.info("Session initialization complete")
+            logger.info("PTY session initialization complete")
             return {
                 'success': True,
-                'session_name': session_name,
+                'session_name': self.get_session_name(guid),
                 'session_path': str(session_path),
-                'guid': guid
+                'guid': guid,
+                'websocket_url': f'/ws/{guid}',
+                'reused': False
             }
 
         except Exception as e:
             logger.exception(f"Session initialization failed: {e}")
+            try:
+                self._update_status(status_file_path, "error", 0, str(e), guid, email, user_request)
+            except Exception:
+                pass
             return {
                 'success': False,
                 'error': str(e)
             }
 
-    def _ensure_healthy_session(
+    def _update_status(
         self,
-        session_name: str,
-        session_path: Path,
-        guid: str
-    ) -> bool:
-        """
-        Ensure session exists and is healthy, or create new one.
-
-        Strategy:
-        1. Check if session exists
-        2. If exists and < 5 days old, reuse it
-        3. Otherwise, kill and recreate
-
-        Returns:
-            True if healthy session ready, False otherwise
-        """
+        status_file: Path,
+        state: str,
+        progress: int,
+        message: str,
+        guid: str,
+        email: str,
+        user_request: str,
+        mode: str = "initializing"
+    ):
+        """Update status.json file."""
         try:
-            # Check if session exists
-            if TmuxHelper.session_exists(session_name):
-                logger.info(f"Session {session_name} exists, checking age...")
-
-                session_age_days = self._get_session_age_days(guid)
-
-                if session_age_days is not None and session_age_days < self.MAX_SESSION_AGE_DAYS:
-                    logger.info(f"Session is {session_age_days:.1f} days old, reusing")
-                    return True
-                else:
-                    logger.info(f"Session too old ({session_age_days} days), recreating")
-                    TmuxHelper.kill_session(session_name)
-
-            # Create new session
-            logger.info(f"Creating new tmux session: {session_name}")
-            success = TmuxHelper.create_session(session_name, str(session_path))
-
-            if success:
-                logger.info("Session created successfully")
-                return True
-            else:
-                logger.error("Failed to create session")
-                return False
-
+            status = {
+                'state': state,
+                'progress': progress,
+                'message': message,
+                'phase': state,
+                'updated_at': datetime.utcnow().isoformat() + 'Z',
+                'guid': guid,
+                'email': email,
+                'user_request': user_request,
+                'mode': mode,
+            }
+            status_file.parent.mkdir(parents=True, exist_ok=True)
+            status_file.write_text(json.dumps(status, indent=2))
         except Exception as e:
-            logger.exception(f"Error ensuring healthy session: {e}")
-            return False
+            logger.error(f"Error updating status: {e}")
 
     def _get_session_age_days(self, guid: str) -> Optional[float]:
         """Get age of session in days from status.json."""

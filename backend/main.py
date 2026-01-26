@@ -590,6 +590,55 @@ async def list_stream_sessions():
     }
 
 
+@app.get("/api/debug/pty/{guid}")
+async def debug_pty_session(guid: str):
+    """Debug endpoint to inspect PTY session state."""
+    import subprocess
+
+    session = pty_manager.get_session(guid)
+    if not session:
+        return {"error": "Session not found", "guid": guid}
+
+    # Get process info
+    pid = session.pty.pid if session.pty else None
+    is_alive = session.is_alive()
+
+    # Try to get process info from system
+    proc_info = None
+    if pid:
+        try:
+            result = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "pid,ppid,state,cmd"],
+                capture_output=True,
+                text=True
+            )
+            proc_info = result.stdout
+        except Exception as e:
+            proc_info = f"Error getting process info: {e}"
+
+    # Try to read any pending output
+    pending_output = None
+    try:
+        pending_output = session.read_output(timeout=0.5)
+    except Exception as e:
+        pending_output = f"Error reading: {e}"
+
+    # Get buffer
+    buffer = session.get_buffer()
+
+    return {
+        "guid": guid,
+        "pid": pid,
+        "is_alive": is_alive,
+        "working_dir": str(session.working_dir),
+        "created_at": session.created_at.isoformat(),
+        "process_info": proc_info,
+        "pending_output": pending_output,
+        "buffer_length": len(buffer) if buffer else 0,
+        "buffer_preview": buffer[:500] if buffer else None,
+    }
+
+
 # ==============================================
 # Server Startup
 # ==============================================

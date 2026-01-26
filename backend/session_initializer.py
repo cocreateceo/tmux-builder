@@ -50,7 +50,7 @@ class SessionInitializer:
         session_path.mkdir(parents=True, exist_ok=True)
         return session_path
 
-    def initialize_session(
+    async def initialize_session(
         self,
         guid: str,
         email: str = "",
@@ -103,14 +103,7 @@ class SessionInitializer:
             TmuxHelper.send_instruction(session_name, health_check_instruction)
 
             logger.info(f"Waiting for MCP ack from Claude CLI...")
-            import asyncio
-            loop = asyncio.new_event_loop()
-            try:
-                ack_received = loop.run_until_complete(
-                    wait_for_ack(guid, timeout=self.HEALTH_CHECK_TIMEOUT)
-                )
-            finally:
-                loop.close()
+            ack_received = await wait_for_ack(guid, timeout=self.HEALTH_CHECK_TIMEOUT)
 
             if not ack_received:
                 logger.error("Timeout waiting for MCP ack - Claude CLI not responsive")
@@ -222,7 +215,7 @@ class SessionInitializer:
             logger.warning(f"Unable to determine session age: {e}")
             return None
 
-    def health_check(self, guid: str, timeout: int = 10) -> bool:
+    async def health_check(self, guid: str, timeout: int = 10) -> bool:
         """
         Perform a quick health check on an existing session via MCP.
 
@@ -247,14 +240,7 @@ class SessionInitializer:
             TmuxHelper.send_instruction(session_name, f'Call your MCP tool: notify_ack(guid="{guid}")')
 
             # Wait for ack via MCP
-            import asyncio
-            loop = asyncio.new_event_loop()
-            try:
-                ack_received = loop.run_until_complete(
-                    wait_for_ack(guid, timeout=timeout)
-                )
-            finally:
-                loop.close()
+            ack_received = await wait_for_ack(guid, timeout=timeout)
 
             if ack_received:
                 logger.debug(f"Health check passed for {guid}")

@@ -356,7 +356,7 @@ async def create_session():
         initializer = SessionInitializer()
 
         logger.info("Initializing session (simple health check)...")
-        result = initializer.initialize_session(
+        result = await initializer.initialize_session(
             guid=demo_guid,
             email=f"{DEFAULT_USER}@demo.local",
             phone="0000000000"
@@ -730,14 +730,10 @@ async def create_session_ws(websocket: WebSocket, guid: str):
         from session_initializer import SessionInitializer
         initializer = SessionInitializer()
 
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            lambda: initializer.initialize_session(
-                guid=guid,
-                email=f"{DEFAULT_USER}@demo.local",
-                phone="0000000000"
-            )
+        result = await initializer.initialize_session(
+            guid=guid,
+            email=f"{DEFAULT_USER}@demo.local",
+            phone="0000000000"
         )
 
         if result.get('success'):

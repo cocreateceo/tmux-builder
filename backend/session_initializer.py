@@ -1,13 +1,14 @@
 """
-Manages Claude CLI session initialization with file-based REPL handshake.
+Manages Claude CLI session initialization with simple health check.
 
-Protocol:
+Protocol (simplified):
 1. Create tmux session, start Claude CLI
-2. Send: "Create ready.marker when ready"
+2. Send: "touch ready.marker" (health check)
 3. Wait for ready.marker
-4. Write system_prompt.txt
-5. Send: "Read system_prompt.txt, create ack.marker when done"
-6. Wait for ack.marker
+4. Done! Session ready for chat.
+
+The full autonomous prompt is sent with the FIRST user message,
+not during initialization. This keeps init fast (~5-10s).
 """
 
 import logging
@@ -22,12 +23,10 @@ from config import (
     TMUX_SESSION_PREFIX,
     ACTIVE_SESSIONS_DIR,
     READY_MARKER,
-    ACK_MARKER,
     get_markers_path,
     get_marker_file,
 )
 from tmux_helper import TmuxHelper
-from prompt_manager import PromptManager
 from marker_utils import (
     wait_for_marker,
     clear_markers,
@@ -38,15 +37,14 @@ logger = logging.getLogger(__name__)
 
 
 class SessionInitializer:
-    """Handles initialization of Claude CLI sessions with marker-based handshake."""
+    """Handles initialization of Claude CLI sessions with simple health check."""
 
     # Session reuse settings
     MAX_SESSION_AGE_DAYS = 5
-    HEALTH_CHECK_TIMEOUT = 10
+    HEALTH_CHECK_TIMEOUT = 30  # seconds to wait for ready.marker
 
     def __init__(self):
         """Initialize SessionInitializer."""
-        self.prompt_manager = PromptManager()
         logger.info("SessionInitializer ready")
 
     @staticmethod
@@ -64,18 +62,21 @@ class SessionInitializer:
     def initialize_session(
         self,
         guid: str,
-        email: str,
-        phone: str,
-        user_request: str
+        email: str = "",
+        phone: str = "",
+        user_request: str = ""
     ) -> Dict[str, Any]:
         """
-        Initialize Claude CLI session using file-based REPL handshake.
+        Initialize Claude CLI session with simple health check.
+
+        This only verifies Claude CLI is alive and ready.
+        The full autonomous prompt is sent with the first user message.
 
         Args:
             guid: User GUID
-            email: User email
-            phone: User phone
-            user_request: User's build request
+            email: User email (stored for later use)
+            phone: User phone (stored for later use)
+            user_request: User's build request (stored for later use)
 
         Returns:
             Dictionary with success status and session info
@@ -97,9 +98,8 @@ class SessionInitializer:
             clear_markers(guid)
             logger.info("Cleared stale markers")
 
-            # Get marker file paths for the prompt
+            # Get marker file path
             ready_marker_path = get_marker_file(guid, READY_MARKER)
-            ack_marker_path = get_marker_file(guid, ACK_MARKER)
 
             # Step 1: Ensure healthy session (reuse if possible, create if needed)
             session_created = self._ensure_healthy_session(
@@ -112,128 +112,38 @@ class SessionInitializer:
                     'error': 'Failed to create or recover session'
                 }
 
-            # Step 2: Send ready instruction and wait for ready.marker
-            logger.info("Step 2: Sending ready instruction...")
-            ready_instruction = (
-                f"You are now connected. Signal that you are ready by creating "
-                f"the file: {ready_marker_path}\n"
-                f"Use: touch {ready_marker_path}"
-            )
-            TmuxHelper.send_instruction(session_name, ready_instruction)
+            # Step 2: Simple health check - ask Claude to create ready.marker
+            logger.info("Step 2: Health check - waiting for Claude CLI to be ready...")
+
+            # Simple instruction - just touch the marker file
+            health_check_instruction = f"touch {ready_marker_path}"
+            TmuxHelper.send_instruction(session_name, health_check_instruction)
 
             logger.info(f"Waiting for ready.marker: {ready_marker_path}")
-            if not wait_for_marker(guid, READY_MARKER):
-                logger.error("Timeout waiting for ready.marker")
+            if not wait_for_marker(guid, READY_MARKER, timeout=self.HEALTH_CHECK_TIMEOUT):
+                logger.error("Timeout waiting for ready.marker - Claude CLI not responsive")
                 return {
                     'success': False,
-                    'error': 'Claude CLI did not signal ready in time'
+                    'error': 'Claude CLI did not respond to health check in time'
                 }
-            logger.info("ready.marker received")
+            logger.info("ready.marker received - Claude CLI is alive and ready")
 
-            # Step 3: Prepare system prompt with marker paths
-            logger.info("Step 3: Preparing system prompt...")
-
-            # Define all marker paths for the system prompt
-            completed_marker_path = get_marker_file(guid, "completed.marker")
+            # Step 3: Initialize status.json with session metadata
             status_file_path = session_path / "status.json"
-
-            system_prompt = self.prompt_manager.render_system_prompt(
-                'autonomous_agent',
-                {
-                    'guid': guid,
-                    'email': email,
-                    'phone': phone,
-                    'user_request': user_request,
-                    'session_path': str(session_path),
-                    'markers_path': str(markers_path),
-                    'aws_profile': 'sunwaretech',
-                    # New marker names
-                    'ready_marker': str(ready_marker_path),
-                    'ack_marker': str(ack_marker_path),
-                    'completed_marker': str(completed_marker_path),
-                    'status_file': str(status_file_path),
-                    # Legacy marker names (for template compatibility)
-                    'initialized_marker': str(ready_marker_path),  # ready = initialized
-                    'processing_marker': str(ack_marker_path),     # ack = processing
-                }
-            )
-
-            # Write system prompt to file
-            system_prompt_file = session_path / "system_prompt.txt"
-            system_prompt_file.write_text(system_prompt)
-            logger.info(f"System prompt written to {system_prompt_file}")
-
-            # Initialize status.json
             initial_status = {
-                'state': 'initializing',
-                'progress': 10,
-                'message': 'Reading system prompt',
-                'phase': 'init',
-                'updated_at': datetime.utcnow().isoformat() + 'Z',
-                'guid': guid,
-                'email': email,
-                'user_request': user_request,
-            }
-            status_file_path.write_text(json.dumps(initial_status, indent=2))
-            logger.info(f"Initial status written to {status_file_path}")
-
-            # Step 4: Send instruction to read system prompt, wait for ack
-            # Retry up to 3 times with delay if ack.marker not received
-            logger.info("Step 4: Sending read-and-ack instruction...")
-
-            # Clear ready marker before sending next instruction
-            delete_marker(guid, READY_MARKER)
-
-            # Single-line instruction (avoid multi-line issues with tmux)
-            # IMPORTANT: Explicitly tell Claude this is pre-authorized to avoid confirmation prompts
-            read_instruction = (
-                f"This is a pre-authorized autonomous build session. Read {system_prompt_file} and execute immediately. "
-                f"Do NOT ask for confirmation - the user already approved by submitting. Create {ack_marker_path} and start building."
-            )
-
-            max_retries = 3
-            ack_received = False
-
-            for attempt in range(1, max_retries + 1):
-                logger.info(f"Attempt {attempt}/{max_retries}: Sending read instruction...")
-
-                # Clear any stale ack marker before retry
-                delete_marker(guid, ACK_MARKER)
-
-                # Send instruction
-                TmuxHelper.send_instruction(session_name, read_instruction)
-
-                logger.info(f"Waiting for ack.marker: {ack_marker_path}")
-                if wait_for_marker(guid, ACK_MARKER):
-                    logger.info("ack.marker received - system prompt acknowledged")
-                    ack_received = True
-                    break
-                else:
-                    logger.warning(f"Attempt {attempt} failed - ack.marker not received")
-                    if attempt < max_retries:
-                        retry_delay = 3.0 * attempt  # Increasing delay: 3s, 6s, 9s
-                        logger.info(f"Retrying in {retry_delay}s...")
-                        time.sleep(retry_delay)
-
-            if not ack_received:
-                logger.error(f"Failed to receive ack.marker after {max_retries} attempts")
-                return {
-                    'success': False,
-                    'error': f'Claude CLI did not acknowledge system prompt after {max_retries} attempts'
-                }
-
-            # Step 5: Update status and return success
-            final_status = {
                 'state': 'ready',
                 'progress': 100,
-                'message': 'Session initialized and ready',
+                'message': 'Session ready for chat',
                 'phase': 'ready',
                 'updated_at': datetime.utcnow().isoformat() + 'Z',
                 'guid': guid,
                 'email': email,
+                'phone': phone,
                 'user_request': user_request,
+                'first_message_sent': False,  # Track if autonomous prompt has been sent
             }
-            status_file_path.write_text(json.dumps(final_status, indent=2))
+            status_file_path.write_text(json.dumps(initial_status, indent=2))
+            logger.info(f"Status written to {status_file_path}")
 
             logger.info("Session initialization complete")
             return {
@@ -319,3 +229,46 @@ class SessionInitializer:
         except Exception as e:
             logger.warning(f"Unable to determine session age: {e}")
             return None
+
+    def health_check(self, guid: str, timeout: int = 10) -> bool:
+        """
+        Perform a quick health check on an existing session.
+
+        Verifies Claude CLI is responsive by asking it to touch a marker file.
+        Should be called before each request to ensure CLI is alive.
+
+        Args:
+            guid: Session GUID
+            timeout: Seconds to wait for response
+
+        Returns:
+            True if CLI is responsive, False otherwise
+        """
+        try:
+            session_name = self.get_session_name(guid)
+
+            # Check if tmux session exists
+            if not TmuxHelper.session_exists(session_name):
+                logger.warning(f"Health check failed: tmux session {session_name} does not exist")
+                return False
+
+            # Clear ready marker before health check
+            delete_marker(guid, READY_MARKER)
+
+            # Get marker path
+            ready_marker_path = get_marker_file(guid, READY_MARKER)
+
+            # Send simple touch command
+            TmuxHelper.send_instruction(session_name, f"touch {ready_marker_path}")
+
+            # Wait for marker
+            if wait_for_marker(guid, READY_MARKER, timeout=timeout):
+                logger.debug(f"Health check passed for {guid}")
+                return True
+            else:
+                logger.warning(f"Health check failed: timeout waiting for ready.marker")
+                return False
+
+        except Exception as e:
+            logger.error(f"Health check error: {e}")
+            return False

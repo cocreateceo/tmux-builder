@@ -134,6 +134,9 @@ PROMPT_FILE = "prompt.txt"
 # Chat history file
 CHAT_HISTORY_FILE = "chat_history.jsonl"
 
+# Completion file (Claude writes response here)
+COMPLETION_FILE = "completion.txt"
+
 # ==============================================
 # FILE PATHS
 # ==============================================
@@ -249,6 +252,11 @@ def get_status_file(guid: str) -> Path:
 def get_prompt_file(guid: str) -> Path:
     """Get the path to prompt.txt for a session."""
     return ACTIVE_SESSIONS_DIR / guid / PROMPT_FILE
+
+
+def get_completion_file(guid: str) -> Path:
+    """Get the path to completion.txt for a session."""
+    return ACTIVE_SESSIONS_DIR / guid / COMPLETION_FILE
 
 # ==============================================
 # VALIDATION

@@ -1,14 +1,17 @@
-"""FastAPI backend for tmux-builder chat interface."""
+"""FastAPI backend for tmux-builder chat interface with WebSocket support."""
 
 import logging
 import os
-from fastapi import FastAPI, HTTPException
+import json
+import asyncio
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from config import API_HOST, API_PORT, DEFAULT_USER
+from config import API_HOST, API_PORT, DEFAULT_USER, ACTIVE_SESSIONS_DIR
 from session_controller import SessionController
 from background_worker import BackgroundWorker
 from guid_generator import generate_guid
@@ -36,6 +39,113 @@ session_controller: Optional[SessionController] = None
 
 # Initialize background worker
 background_worker = BackgroundWorker()
+
+
+# ============================================================================
+# WebSocket Connection Manager
+# ============================================================================
+
+class ConnectionManager:
+    """Manages WebSocket connections per session GUID."""
+
+    def __init__(self):
+        # Map: guid -> list of WebSocket connections
+        self.active_connections: Dict[str, List[WebSocket]] = {}
+        # Map: guid -> SessionController
+        self.session_controllers: Dict[str, SessionController] = {}
+        # Map: guid -> last known status (to detect changes)
+        self.last_status: Dict[str, Dict] = {}
+
+    async def connect(self, websocket: WebSocket, guid: str):
+        """Accept WebSocket connection and register it."""
+        await websocket.accept()
+        if guid not in self.active_connections:
+            self.active_connections[guid] = []
+        self.active_connections[guid].append(websocket)
+        logger.info(f"WebSocket connected for GUID: {guid} (total: {len(self.active_connections[guid])})")
+
+    def disconnect(self, websocket: WebSocket, guid: str):
+        """Remove WebSocket connection."""
+        if guid in self.active_connections:
+            if websocket in self.active_connections[guid]:
+                self.active_connections[guid].remove(websocket)
+            if not self.active_connections[guid]:
+                del self.active_connections[guid]
+        logger.info(f"WebSocket disconnected for GUID: {guid}")
+
+    async def send_to_guid(self, guid: str, message: dict):
+        """Send message to all connections for a GUID."""
+        if guid in self.active_connections:
+            dead_connections = []
+            for connection in self.active_connections[guid]:
+                try:
+                    await connection.send_json(message)
+                except Exception as e:
+                    logger.warning(f"Failed to send to WebSocket: {e}")
+                    dead_connections.append(connection)
+            # Clean up dead connections
+            for conn in dead_connections:
+                self.active_connections[guid].remove(conn)
+
+    def get_session_controller(self, guid: str) -> Optional[SessionController]:
+        """Get or create SessionController for GUID."""
+        if guid not in self.session_controllers:
+            # Check if session exists
+            session_path = ACTIVE_SESSIONS_DIR / guid
+            if session_path.exists():
+                self.session_controllers[guid] = SessionController(guid=guid)
+                logger.info(f"Created SessionController for existing session: {guid}")
+            else:
+                return None
+        return self.session_controllers[guid]
+
+    def set_session_controller(self, guid: str, controller: SessionController):
+        """Store SessionController for GUID."""
+        self.session_controllers[guid] = controller
+
+    def get_status(self, guid: str) -> Dict:
+        """Read current status from status.json and markers."""
+        try:
+            session_path = ACTIVE_SESSIONS_DIR / guid
+            status_file = session_path / "status.json"
+            markers_path = session_path / "markers"
+
+            status = {
+                "state": "unknown",
+                "progress": 0,
+                "message": "Checking status...",
+                "markers": {}
+            }
+
+            # Read status.json
+            if status_file.exists():
+                try:
+                    status.update(json.loads(status_file.read_text()))
+                except json.JSONDecodeError:
+                    pass
+
+            # Check markers
+            if markers_path.exists():
+                for marker in ["ready.marker", "ack.marker", "completed.marker"]:
+                    marker_file = markers_path / marker
+                    status["markers"][marker] = marker_file.exists()
+
+            return status
+
+        except Exception as e:
+            logger.error(f"Error reading status: {e}")
+            return {"state": "error", "message": str(e)}
+
+    def get_chat_history(self, guid: str) -> List[Dict]:
+        """Read chat history for GUID."""
+        controller = self.get_session_controller(guid)
+        if controller:
+            return controller.get_chat_history()
+        return []
+
+
+# Global connection manager
+ws_manager = ConnectionManager()
 
 
 # Request/Response models
@@ -199,6 +309,9 @@ async def create_session():
     """
     Create a new Claude CLI session (simple chat UI flow).
 
+    This performs a quick health check to verify Claude CLI is alive.
+    The full autonomous prompt is sent with the first user message.
+
     For the full GUID-based flow, use /api/register instead.
     This endpoint creates a session using a default GUID for demo purposes.
     """
@@ -212,16 +325,15 @@ async def create_session():
         demo_guid = generate_guid(f"{DEFAULT_USER}@demo.local", "0000000000")
         logger.info(f"Demo GUID: {demo_guid}")
 
-        # Use SessionInitializer for proper marker-based handshake
+        # Use SessionInitializer for simple health check
         from session_initializer import SessionInitializer
         initializer = SessionInitializer()
 
-        logger.info("Initializing session with marker handshake...")
+        logger.info("Initializing session (simple health check)...")
         result = initializer.initialize_session(
             guid=demo_guid,
             email=f"{DEFAULT_USER}@demo.local",
-            phone="0000000000",
-            user_request="Interactive chat session"
+            phone="0000000000"
         )
 
         if result.get('success'):
@@ -230,7 +342,7 @@ async def create_session():
             logger.info(f"✓ Session created successfully: {session_controller.session_name}")
             return {
                 "success": True,
-                "message": "Session created successfully",
+                "message": "Session ready - send your first message to begin",
                 "session_name": session_controller.session_name,
                 "guid": demo_guid
             }
@@ -332,6 +444,307 @@ async def clear_session():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# WebSocket Endpoints
+# ============================================================================
+
+@app.websocket("/ws/{guid}")
+async def websocket_endpoint(websocket: WebSocket, guid: str):
+    """
+    WebSocket endpoint for real-time chat communication.
+
+    Messages from client:
+    - {"type": "send_message", "content": "..."} - Send a chat message
+    - {"type": "get_status"} - Request current status
+    - {"type": "get_history"} - Request chat history
+    - {"type": "ping"} - Keepalive ping
+
+    Messages to client:
+    - {"type": "connected", "guid": "...", "status": {...}} - Connection established
+    - {"type": "status", ...} - Status update
+    - {"type": "history", "messages": [...]} - Chat history
+    - {"type": "response", "content": "...", "complete": true/false} - Message response
+    - {"type": "error", "message": "..."} - Error message
+    - {"type": "pong"} - Response to ping
+    """
+    await ws_manager.connect(websocket, guid)
+    status_task = None
+
+    try:
+        # Send initial status on connect
+        loop = asyncio.get_event_loop()
+        status = await loop.run_in_executor(None, ws_manager.get_status, guid)
+        history = await loop.run_in_executor(None, ws_manager.get_chat_history, guid)
+
+        await websocket.send_json({
+            "type": "connected",
+            "guid": guid,
+            "status": status,
+            "history": history
+        })
+
+        # Start background status polling task
+        status_task = asyncio.create_task(
+            poll_status_updates(websocket, guid)
+        )
+
+        # Main message loop
+        while True:
+            try:
+                # Use receive() instead of receive_json() for better error handling
+                message = await websocket.receive()
+
+                if message["type"] == "websocket.disconnect":
+                    logger.info(f"WebSocket disconnect received: {guid}")
+                    break
+
+                if message["type"] == "websocket.receive":
+                    if "text" in message:
+                        try:
+                            data = json.loads(message["text"])
+                            await handle_ws_message(websocket, guid, data)
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Invalid JSON from client: {e}")
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": "Invalid JSON"
+                            })
+
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected: {guid}")
+                break
+            except Exception as e:
+                logger.error(f"Error in message loop: {e}")
+                break
+
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected during setup: {guid}")
+    except Exception as e:
+        logger.error(f"WebSocket error for {guid}: {e}", exc_info=True)
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": str(e)
+            })
+        except:
+            pass
+    finally:
+        # Clean up status task
+        if status_task:
+            status_task.cancel()
+            try:
+                await status_task
+            except asyncio.CancelledError:
+                pass
+        ws_manager.disconnect(websocket, guid)
+
+
+async def poll_status_updates(websocket: WebSocket, guid: str):
+    """Background task to poll status.json and send updates."""
+    last_status_json = None
+
+    while True:
+        try:
+            await asyncio.sleep(2)  # Poll every 2 seconds (reduced frequency)
+
+            # Run synchronous file I/O in thread pool to avoid blocking
+            loop = asyncio.get_event_loop()
+            current_status = await loop.run_in_executor(
+                None,
+                ws_manager.get_status,
+                guid
+            )
+
+            # Compare as JSON string to detect actual changes
+            current_status_json = json.dumps(current_status, sort_keys=True)
+            if current_status_json != last_status_json:
+                try:
+                    await websocket.send_json({
+                        "type": "status",
+                        **current_status
+                    })
+                    last_status_json = current_status_json
+                except Exception as send_error:
+                    # WebSocket might be closed, exit gracefully
+                    logger.debug(f"Status send failed (connection may be closed): {send_error}")
+                    break
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.debug(f"Status poll error: {e}")
+            break
+
+
+async def handle_ws_message(websocket: WebSocket, guid: str, data: dict):
+    """Handle incoming WebSocket message."""
+    global session_controller
+
+    msg_type = data.get("type")
+    logger.info(f"WebSocket message from {guid}: {msg_type}")
+
+    if msg_type == "send_message":
+        content = data.get("content", "").strip()
+        if not content:
+            await websocket.send_json({
+                "type": "error",
+                "message": "Empty message"
+            })
+            return
+
+        # Get or create session controller
+        controller = ws_manager.get_session_controller(guid)
+        if not controller:
+            # Try to create session first
+            await websocket.send_json({
+                "type": "error",
+                "message": "No session found. Please create a session first."
+            })
+            return
+
+        # Also update global session_controller for backwards compatibility
+        session_controller = controller
+
+        # Send acknowledgment that we're processing
+        await websocket.send_json({
+            "type": "status",
+            "state": "processing",
+            "progress": 10,
+            "message": "Processing your message..."
+        })
+
+        # Process message in background to avoid blocking
+        asyncio.create_task(
+            process_message_async(websocket, guid, controller, content)
+        )
+
+    elif msg_type == "get_status":
+        status = ws_manager.get_status(guid)
+        await websocket.send_json({
+            "type": "status",
+            **status
+        })
+
+    elif msg_type == "get_history":
+        history = ws_manager.get_chat_history(guid)
+        await websocket.send_json({
+            "type": "history",
+            "messages": history
+        })
+
+    elif msg_type == "create_session":
+        # Create session via WebSocket
+        await create_session_ws(websocket, guid)
+
+    elif msg_type == "ping":
+        # Keepalive ping
+        await websocket.send_json({"type": "pong"})
+
+    else:
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Unknown message type: {msg_type}"
+        })
+
+
+async def process_message_async(
+    websocket: WebSocket,
+    guid: str,
+    controller: SessionController,
+    content: str
+):
+    """Process a chat message asynchronously."""
+    try:
+        # Run the blocking send_message in a thread pool
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            controller.send_message,
+            content
+        )
+
+        # Send response back
+        await websocket.send_json({
+            "type": "response",
+            "content": response or "No response received",
+            "complete": True,
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        })
+
+        # Send updated status
+        status = ws_manager.get_status(guid)
+        await websocket.send_json({
+            "type": "status",
+            **status
+        })
+
+    except Exception as e:
+        logger.error(f"Error processing message: {e}")
+        await websocket.send_json({
+            "type": "error",
+            "message": str(e)
+        })
+
+
+async def create_session_ws(websocket: WebSocket, guid: str):
+    """Create session via WebSocket."""
+    global session_controller
+
+    try:
+        await websocket.send_json({
+            "type": "status",
+            "state": "initializing",
+            "progress": 10,
+            "message": "Creating session..."
+        })
+
+        # Run initialization in thread pool
+        from session_initializer import SessionInitializer
+        initializer = SessionInitializer()
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: initializer.initialize_session(
+                guid=guid,
+                email=f"{DEFAULT_USER}@demo.local",
+                phone="0000000000"
+            )
+        )
+
+        if result.get('success'):
+            controller = SessionController(guid=guid)
+            ws_manager.set_session_controller(guid, controller)
+            session_controller = controller  # Backwards compatibility
+
+            await websocket.send_json({
+                "type": "session_created",
+                "success": True,
+                "message": "Session ready - send your first message",
+                "guid": guid,
+                "session_name": controller.session_name
+            })
+
+            # Send status update
+            status = ws_manager.get_status(guid)
+            await websocket.send_json({
+                "type": "status",
+                **status
+            })
+        else:
+            await websocket.send_json({
+                "type": "error",
+                "message": result.get('error', 'Failed to create session')
+            })
+
+    except Exception as e:
+        logger.error(f"Error creating session via WS: {e}")
+        await websocket.send_json({
+            "type": "error",
+            "message": str(e)
+        })
 
 
 if __name__ == "__main__":

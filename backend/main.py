@@ -300,22 +300,23 @@ async def chat(chat_message: ChatMessage):
 
         # Collect response output over a few seconds
         # Note: This is imperfect - we can't know exactly when Claude is done
+        import time as time_module
         response_parts = []
         max_wait = 10.0  # Maximum wait time in seconds
         poll_interval = 0.1
         idle_timeout = 2.0  # Stop if no output for this long
-        last_output_time = asyncio.get_event_loop().time()
+        last_output_time = time_module.time()
         start_time = last_output_time
 
-        while (asyncio.get_event_loop().time() - start_time) < max_wait:
+        while (time_module.time() - start_time) < max_wait:
             output = await session.read_output_async()
             if output:
                 response_parts.append(output)
-                last_output_time = asyncio.get_event_loop().time()
+                last_output_time = time_module.time()
                 logger.debug(f"Received output chunk: {len(output)} bytes")
             else:
                 # Check if we've been idle too long
-                if (asyncio.get_event_loop().time() - last_output_time) > idle_timeout:
+                if (time_module.time() - last_output_time) > idle_timeout:
                     logger.info("Response collection complete (idle timeout)")
                     break
             await asyncio.sleep(poll_interval)

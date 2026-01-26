@@ -292,12 +292,13 @@ async def chat(chat_message: ChatMessage):
 
 @app.get("/api/history")
 async def get_history():
-    """Get chat history."""
-    if session_controller is None:
-        return HistoryResponse(messages=[])
+    """
+    Get chat history.
 
-    messages = session_controller.get_chat_history()
-    return HistoryResponse(messages=messages)
+    DEPRECATED: Chat mode is deprecated. Use Terminal mode instead.
+    Returns empty history since chat history is not maintained for PTY sessions.
+    """
+    return HistoryResponse(messages=[])
 
 
 @app.post("/api/clear")

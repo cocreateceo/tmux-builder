@@ -106,24 +106,23 @@ MAX_CONCURRENT_JOBS = 4
 # Session prefix (for chat-based sessions)
 SESSION_PREFIX = TMUX_SESSION_PREFIX
 
-# Marker timeouts and polling (for chat UI)
-MARKER_TIMEOUT = 60  # seconds to wait for response
-MARKER_POLL_INTERVAL = 0.5  # seconds between checks
+# ==============================================
+# MCP SERVER CONFIGURATION
+# ==============================================
 
-# Specific marker timeouts
-# NOTE: WSL has ~6s delay for file visibility across process boundaries
-READY_MARKER_TIMEOUT = 30   # seconds to wait for Claude to be ready
-ACK_MARKER_TIMEOUT = 30     # seconds to wait for prompt acknowledgment (was 10, increased for WSL)
-COMPLETED_MARKER_TIMEOUT = 300  # seconds to wait for task completion (5 min)
+# MCP server name (registered with Claude CLI)
+MCP_SERVER_NAME = 'tmux-progress'
 
-# Marker file names (file-based REPL protocol)
-READY_MARKER = "ready.marker"          # Claude creates when ready for input
-ACK_MARKER = "ack.marker"              # Claude creates when prompt received
-COMPLETED_MARKER = "completed.marker"  # Claude creates when task done
+# MCP WebSocket port (for UI connections)
+MCP_WS_PORT = int(os.getenv('MCP_WS_PORT', '8001'))
 
-# Legacy markers (for backwards compatibility)
-INITIALIZED_MARKER = "initialized.marker"
-PROCESSING_MARKER = "processing.marker"
+# MCP protocol timeouts
+MCP_ACK_TIMEOUT = 30  # seconds to wait for ack
+MCP_RESPONSE_TIMEOUT = 300  # seconds to wait for response
+
+# ==============================================
+# CHAT SESSION FILES
+# ==============================================
 
 # Status file
 STATUS_FILE = "status.json"
@@ -228,18 +227,6 @@ def get_user_session_path(username: str) -> Path:
     user_dir = SESSIONS_DIR / username
     user_dir.mkdir(parents=True, exist_ok=True)
     return user_dir
-
-def get_markers_path(guid: str) -> Path:
-    """Get the markers directory path for a session."""
-    markers_dir = ACTIVE_SESSIONS_DIR / guid / "markers"
-    markers_dir.mkdir(parents=True, exist_ok=True)
-    return markers_dir
-
-
-def get_marker_file(guid: str, marker_name: str) -> Path:
-    """Get the full path to a specific marker file."""
-    return get_markers_path(guid) / marker_name
-
 
 def get_status_file(guid: str) -> Path:
     """Get the path to status.json for a session."""

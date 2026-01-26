@@ -111,6 +111,9 @@ class PTYSession:
         try:
             data = self.pty.read_nonblocking(size=4096, timeout=timeout)
             if data:
+                # Decode bytes to string
+                if isinstance(data, bytes):
+                    data = data.decode('utf-8', errors='replace')
                 # Add to buffer
                 lines = data.split('\n')
                 self.output_buffer.extend(lines)

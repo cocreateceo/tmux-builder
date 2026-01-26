@@ -1,14 +1,12 @@
 """
-Manages Claude CLI session initialization with simple health check.
+Manages Claude CLI session initialization with MCP-based health check.
 
-Protocol (simplified):
+Protocol (MCP-based):
 1. Create tmux session, start Claude CLI
-2. Send: "touch ready.marker" (health check)
-3. Wait for ready.marker
-4. Done! Session ready for chat.
-
-The full autonomous prompt is sent with the FIRST user message,
-not during initialization. This keeps init fast (~5-10s).
+2. Register session with MCP server
+3. Send instruction to call notify_ack MCP tool
+4. Wait for ack via MCP server
+5. Done! Session ready for chat.
 """
 
 import logging
@@ -22,16 +20,9 @@ from config import (
     SESSIONS_DIR,
     TMUX_SESSION_PREFIX,
     ACTIVE_SESSIONS_DIR,
-    READY_MARKER,
-    get_markers_path,
-    get_marker_file,
 )
 from tmux_helper import TmuxHelper
-from marker_utils import (
-    wait_for_marker,
-    clear_markers,
-    delete_marker,
-)
+from mcp_server import register_session, wait_for_ack
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +32,7 @@ class SessionInitializer:
 
     # Session reuse settings
     MAX_SESSION_AGE_DAYS = 5
-    HEALTH_CHECK_TIMEOUT = 30  # seconds to wait for ready.marker
+    HEALTH_CHECK_TIMEOUT = 30  # seconds to wait for MCP ack
 
     def __init__(self):
         """Initialize SessionInitializer."""
@@ -90,17 +81,6 @@ class SessionInitializer:
             logger.info(f"Session name: {session_name}")
             logger.info(f"Session path: {session_path}")
 
-            # Setup markers directory
-            markers_path = get_markers_path(guid)
-            logger.info(f"Markers directory: {markers_path}")
-
-            # Clear any stale markers
-            clear_markers(guid)
-            logger.info("Cleared stale markers")
-
-            # Get marker file path
-            ready_marker_path = get_marker_file(guid, READY_MARKER)
-
             # Step 1: Ensure healthy session (reuse if possible, create if needed)
             session_created = self._ensure_healthy_session(
                 session_name, session_path, guid
@@ -112,23 +92,35 @@ class SessionInitializer:
                     'error': 'Failed to create or recover session'
                 }
 
-            # Step 2: Simple health check - ask Claude to create ready.marker
-            logger.info("Step 2: Health check - waiting for Claude CLI to be ready...")
+            # Step 2: Register session with MCP server
+            logger.info("Step 2: Registering session with MCP server...")
+            register_session(guid)
 
-            # Simple instruction - just touch the marker file
-            health_check_instruction = f"touch {ready_marker_path}"
+            # Step 3: Simple health check - ask Claude to call notify_ack
+            logger.info("Step 3: Health check - verifying Claude CLI is responsive...")
+
+            health_check_instruction = f'Call your MCP tool: notify_ack(guid="{guid}")'
             TmuxHelper.send_instruction(session_name, health_check_instruction)
 
-            logger.info(f"Waiting for ready.marker: {ready_marker_path}")
-            if not wait_for_marker(guid, READY_MARKER, timeout=self.HEALTH_CHECK_TIMEOUT):
-                logger.error("Timeout waiting for ready.marker - Claude CLI not responsive")
+            logger.info(f"Waiting for MCP ack from Claude CLI...")
+            import asyncio
+            loop = asyncio.new_event_loop()
+            try:
+                ack_received = loop.run_until_complete(
+                    wait_for_ack(guid, timeout=self.HEALTH_CHECK_TIMEOUT)
+                )
+            finally:
+                loop.close()
+
+            if not ack_received:
+                logger.error("Timeout waiting for MCP ack - Claude CLI not responsive")
                 return {
                     'success': False,
                     'error': 'Claude CLI did not respond to health check in time'
                 }
-            logger.info("ready.marker received - Claude CLI is alive and ready")
+            logger.info("MCP ack received - Claude CLI is alive and ready")
 
-            # Step 3: Initialize status.json with session metadata
+            # Step 4: Initialize status.json with session metadata
             status_file_path = session_path / "status.json"
             initial_status = {
                 'state': 'ready',
@@ -232,10 +224,9 @@ class SessionInitializer:
 
     def health_check(self, guid: str, timeout: int = 10) -> bool:
         """
-        Perform a quick health check on an existing session.
+        Perform a quick health check on an existing session via MCP.
 
-        Verifies Claude CLI is responsive by asking it to touch a marker file.
-        Should be called before each request to ensure CLI is alive.
+        Verifies Claude CLI is responsive by asking it to call notify_ack.
 
         Args:
             guid: Session GUID
@@ -252,21 +243,24 @@ class SessionInitializer:
                 logger.warning(f"Health check failed: tmux session {session_name} does not exist")
                 return False
 
-            # Clear ready marker before health check
-            delete_marker(guid, READY_MARKER)
+            # Send instruction to call MCP ack
+            TmuxHelper.send_instruction(session_name, f'Call your MCP tool: notify_ack(guid="{guid}")')
 
-            # Get marker path
-            ready_marker_path = get_marker_file(guid, READY_MARKER)
+            # Wait for ack via MCP
+            import asyncio
+            loop = asyncio.new_event_loop()
+            try:
+                ack_received = loop.run_until_complete(
+                    wait_for_ack(guid, timeout=timeout)
+                )
+            finally:
+                loop.close()
 
-            # Send simple touch command
-            TmuxHelper.send_instruction(session_name, f"touch {ready_marker_path}")
-
-            # Wait for marker
-            if wait_for_marker(guid, READY_MARKER, timeout=timeout):
+            if ack_received:
                 logger.debug(f"Health check passed for {guid}")
                 return True
             else:
-                logger.warning(f"Health check failed: timeout waiting for ready.marker")
+                logger.warning(f"Health check failed: timeout waiting for MCP ack")
                 return False
 
         except Exception as e:

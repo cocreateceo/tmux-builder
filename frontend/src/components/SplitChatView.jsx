@@ -11,7 +11,14 @@ function SplitChatView() {
   const [sessionReady, setSessionReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [guid, setGuid] = useState(() => localStorage.getItem('tmux_builder_guid') || null);
+  const [guid, setGuid] = useState(() => {
+    const stored = localStorage.getItem('tmux_builder_guid');
+    // Handle edge cases where "null" or "undefined" might be stored as strings
+    if (!stored || stored === 'null' || stored === 'undefined') {
+      return null;
+    }
+    return stored;
+  });
 
   // Channel 2: MCP WebSocket (progress/tools log)
   const mcpHandlers = useMemo(() => ({

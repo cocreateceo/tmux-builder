@@ -53,8 +53,9 @@ export function useProgressSocket(guid, handlers = {}) {
   const connect = useCallback(() => {
     const currentGuid = guidRef.current;
 
-    if (!currentGuid) {
-      console.log('[MCP-WS] No GUID provided');
+    // More defensive check - handle null, undefined, empty string, and string "null"/"undefined"
+    if (!currentGuid || currentGuid === 'null' || currentGuid === 'undefined') {
+      console.log('[MCP-WS] No valid GUID provided, skipping connection');
       return;
     }
 
@@ -232,8 +233,9 @@ export function useProgressSocket(guid, handlers = {}) {
 
   // Connect when guid is set
   useEffect(() => {
-    if (!guid) {
-      console.log('[MCP-WS] No GUID, skipping connection');
+    // Defensive check - handle null, undefined, empty string, and string "null"/"undefined"
+    if (!guid || guid === 'null' || guid === 'undefined') {
+      console.log('[MCP-WS] No valid GUID, skipping connection');
       return;
     }
 

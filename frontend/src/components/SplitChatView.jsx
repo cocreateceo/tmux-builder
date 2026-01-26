@@ -56,7 +56,7 @@ function SplitChatView() {
         setSessionReady(true);
       }
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to create session');
+      setError(err.response?.data?.detail || err.message || 'Failed to create session');
     } finally {
       setLoading(false);
     }
@@ -80,7 +80,7 @@ function SplitChatView() {
         }]);
       }
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to send message');
+      setError(err.response?.data?.detail || err.message || 'Failed to send message');
     } finally {
       setLoading(false);
     }
@@ -97,7 +97,7 @@ function SplitChatView() {
       setGuid(null);
       localStorage.removeItem('tmux_builder_guid');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to clear session');
+      setError(err.response?.data?.detail || err.message || 'Failed to clear session');
     }
   };
 

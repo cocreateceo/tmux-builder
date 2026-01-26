@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 
 function McpToolsLog({ logs, connected }) {
   const logEndRef = useRef(null);
@@ -7,6 +7,14 @@ function McpToolsLog({ logs, connected }) {
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
+
+  // Memoize progress calculations to avoid recalculating on every render
+  const latestProgress = useMemo(() => {
+    const progressLogs = logs.filter(l => l.tool === 'send_progress');
+    return progressLogs.length > 0 ? progressLogs[progressLogs.length - 1]?.args?.percent || 0 : null;
+  }, [logs]);
+
+  const isComplete = useMemo(() => logs.some(l => l.tool === 'notify_complete'), [logs]);
 
   const formatTimestamp = (ts) => {
     const date = new Date(ts);
@@ -65,7 +73,7 @@ function McpToolsLog({ logs, connected }) {
           </div>
         ) : (
           logs.map((log, index) => (
-            <div key={index} className="flex gap-2">
+            <div key={`${log.timestamp}-${log.tool}-${index}`} className="flex gap-2">
               <span className="text-gray-500 flex-shrink-0">
                 {formatTimestamp(log.timestamp)}
               </span>
@@ -82,14 +90,12 @@ function McpToolsLog({ logs, connected }) {
       </div>
 
       {/* Progress bar */}
-      {logs.some(l => l.tool === 'send_progress') && !logs.some(l => l.tool === 'notify_complete') && (
+      {latestProgress !== null && !isComplete && (
         <div className="p-3 border-t border-gray-700">
           <div className="w-full bg-gray-700 rounded-full h-2">
             <div
               className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-              style={{
-                width: `${logs.filter(l => l.tool === 'send_progress').pop()?.args?.percent || 0}%`
-              }}
+              style={{ width: `${latestProgress}%` }}
             ></div>
           </div>
         </div>

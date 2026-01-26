@@ -595,6 +595,7 @@ async def test_pty():
     """Test PTY with a simple echo command."""
     import ptyprocess
     import time as time_module
+    import select
 
     try:
         # Spawn a simple bash command
@@ -611,12 +612,17 @@ async def test_pty():
         outputs = []
         for _ in range(10):
             try:
-                data = pty.read_nonblocking(size=4096, timeout=0.5)
-                if data:
-                    if isinstance(data, bytes):
-                        data = data.decode('utf-8', errors='replace')
-                    outputs.append(data)
-                    logger.info(f"Test PTY output: {repr(data)}")
+                # Use select for non-blocking check
+                readable, _, _ = select.select([pty.fd], [], [], 0.5)
+                if readable:
+                    data = pty.read(4096)
+                    if data:
+                        if isinstance(data, bytes):
+                            data = data.decode('utf-8', errors='replace')
+                        outputs.append(data)
+                        logger.info(f"Test PTY output: {repr(data)}")
+                else:
+                    break
             except Exception as e:
                 logger.info(f"Test PTY read: {e}")
                 break
@@ -639,6 +645,7 @@ async def test_claude_pty():
     """Test Claude CLI in PTY directly."""
     import ptyprocess
     import time as time_module
+    import select
 
     try:
         # Spawn claude
@@ -655,15 +662,18 @@ async def test_claude_pty():
         outputs = []
         for _ in range(20):
             try:
-                data = pty.read_nonblocking(size=4096, timeout=0.5)
-                if data:
-                    if isinstance(data, bytes):
-                        data = data.decode('utf-8', errors='replace')
-                    outputs.append(data)
-                    logger.info(f"Claude test output: {repr(data)}")
+                readable, _, _ = select.select([pty.fd], [], [], 0.5)
+                if readable:
+                    data = pty.read(4096)
+                    if data:
+                        if isinstance(data, bytes):
+                            data = data.decode('utf-8', errors='replace')
+                        outputs.append(data)
+                        logger.info(f"Claude test output: {repr(data)}")
+                else:
+                    break
             except Exception as e:
-                if "Timeout" not in str(e):
-                    logger.info(f"Claude test read exception: {e}")
+                logger.info(f"Claude test read exception: {e}")
                 break
 
         # Try sending a message
@@ -673,15 +683,18 @@ async def test_claude_pty():
 
         for _ in range(20):
             try:
-                data = pty.read_nonblocking(size=4096, timeout=0.5)
-                if data:
-                    if isinstance(data, bytes):
-                        data = data.decode('utf-8', errors='replace')
-                    outputs.append(data)
-                    logger.info(f"Claude response: {repr(data)}")
+                readable, _, _ = select.select([pty.fd], [], [], 0.5)
+                if readable:
+                    data = pty.read(4096)
+                    if data:
+                        if isinstance(data, bytes):
+                            data = data.decode('utf-8', errors='replace')
+                        outputs.append(data)
+                        logger.info(f"Claude response: {repr(data)}")
+                else:
+                    break
             except Exception as e:
-                if "Timeout" not in str(e):
-                    logger.info(f"Claude read exception: {e}")
+                logger.info(f"Claude read exception: {e}")
                 break
 
         pty.terminate(force=True)

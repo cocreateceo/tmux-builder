@@ -8,6 +8,7 @@ Uses ptyprocess for cross-platform PTY handling.
 import os
 import logging
 import asyncio
+import select
 from typing import Optional, Callable, Dict, Any
 from pathlib import Path
 from datetime import datetime
@@ -86,17 +87,11 @@ class PTYSession:
             time.sleep(1.0)
 
             # Try to read any initial output (welcome message, etc.)
-            try:
-                initial_output = self.pty.read_nonblocking(size=4096, timeout=2.0)
-                if initial_output:
-                    if isinstance(initial_output, bytes):
-                        initial_output = initial_output.decode('utf-8', errors='replace')
-                    logger.info(f"Initial PTY output: {repr(initial_output[:200])}")
-                    self.output_buffer.append(initial_output)
-                else:
-                    logger.warning("No initial output from Claude CLI")
-            except Exception as e:
-                logger.warning(f"Error reading initial output: {e}")
+            initial = self.read_output(timeout=2.0)
+            if initial:
+                logger.info(f"Initial PTY output: {repr(initial[:200])}")
+            else:
+                logger.warning("No initial output from Claude CLI")
 
             return True
 
@@ -106,7 +101,7 @@ class PTYSession:
 
     def read_output(self, timeout: float = 0.1) -> Optional[str]:
         """
-        Read available output from PTY (non-blocking).
+        Read available output from PTY (non-blocking with select).
 
         Args:
             timeout: Read timeout in seconds
@@ -118,18 +113,17 @@ class PTYSession:
             return None
 
         try:
-            # Check if data available
-            if self.pty.read_nonblocking(size=0, timeout=0):
-                pass  # Just checking
-        except EOFError:
-            return None
-        except Exception:
-            pass
+            # Use select to check if data is available
+            fd = self.pty.fd
+            readable, _, _ = select.select([fd], [], [], timeout)
 
-        try:
-            data = self.pty.read_nonblocking(size=4096, timeout=timeout)
+            if not readable:
+                return None
+
+            # Data is available, read it
+            data = self.pty.read(4096)
             if data:
-                # Decode bytes to string
+                # Decode bytes to string if needed
                 if isinstance(data, bytes):
                     data = data.decode('utf-8', errors='replace')
                 # Add to buffer
@@ -139,15 +133,15 @@ class PTYSession:
                 if len(self.output_buffer) > self.max_buffer_lines:
                     self.output_buffer = self.output_buffer[-self.max_buffer_lines:]
                 return data
+
         except EOFError:
             logger.info(f"PTY EOF reached for {self.guid}")
             return None
-        except ptyprocess.PtyProcessError:
+        except ptyprocess.PtyProcessError as e:
+            logger.debug(f"PTY process error: {e}")
             return None
         except Exception as e:
-            # Timeout or no data
-            if "Timeout" not in str(e):
-                logger.debug(f"Read exception: {e}")
+            logger.debug(f"Read exception: {e}")
             return None
 
         return None

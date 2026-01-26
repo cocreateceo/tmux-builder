@@ -31,7 +31,7 @@ function App() {
             <p className="text-gray-400 text-sm">
               {mode === 'terminal'
                 ? 'Real-time terminal streaming via WebSocket'
-                : 'Chat with Claude via tmux sessions'}
+                : 'Chat with Claude via PTY sessions'}
             </p>
           </div>
 
@@ -62,10 +62,14 @@ function App() {
           </div>
         </header>
 
-        {/* Main content */}
-        <div className="flex-1 overflow-hidden rounded-lg border border-gray-700">
-          {mode === 'terminal' ? (
-            guid ? (
+        {/* Main content - use CSS to hide/show instead of unmount */}
+        <div className="flex-1 overflow-hidden rounded-lg border border-gray-700 relative">
+          {/* Terminal mode */}
+          <div
+            className={`absolute inset-0 ${mode === 'terminal' ? 'visible' : 'invisible'}`}
+            style={{ zIndex: mode === 'terminal' ? 10 : 0 }}
+          >
+            {guid ? (
               <Terminal guid={guid} onDisconnect={handleDisconnect} />
             ) : (
               <div className="h-full flex items-center justify-center bg-gray-800">
@@ -96,10 +100,16 @@ function App() {
                   </p>
                 </div>
               </div>
-            )
-          ) : (
+            )}
+          </div>
+
+          {/* Chat mode */}
+          <div
+            className={`absolute inset-0 ${mode === 'chat' ? 'visible' : 'invisible'}`}
+            style={{ zIndex: mode === 'chat' ? 10 : 0 }}
+          >
             <ChatInterface />
-          )}
+          </div>
         </div>
       </div>
     </div>

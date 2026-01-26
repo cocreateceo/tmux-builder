@@ -590,6 +590,113 @@ async def list_stream_sessions():
     }
 
 
+@app.get("/api/debug/pty-test")
+async def test_pty():
+    """Test PTY with a simple echo command."""
+    import ptyprocess
+    import time as time_module
+
+    try:
+        # Spawn a simple bash command
+        pty = ptyprocess.PtyProcess.spawn(
+            ['bash', '-c', 'echo "PTY TEST OUTPUT"; sleep 1; echo "SECOND LINE"'],
+            env={**os.environ, 'TERM': 'xterm-256color'}
+        )
+
+        logger.info(f"Test PTY started with PID: {pty.pid}")
+
+        # Wait and read
+        time_module.sleep(0.5)
+
+        outputs = []
+        for _ in range(10):
+            try:
+                data = pty.read_nonblocking(size=4096, timeout=0.5)
+                if data:
+                    if isinstance(data, bytes):
+                        data = data.decode('utf-8', errors='replace')
+                    outputs.append(data)
+                    logger.info(f"Test PTY output: {repr(data)}")
+            except Exception as e:
+                logger.info(f"Test PTY read: {e}")
+                break
+
+        pty.terminate(force=True)
+
+        return {
+            "success": True,
+            "outputs": outputs,
+            "combined": ''.join(outputs)
+        }
+
+    except Exception as e:
+        logger.error(f"Test PTY failed: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/debug/claude-test")
+async def test_claude_pty():
+    """Test Claude CLI in PTY directly."""
+    import ptyprocess
+    import time as time_module
+
+    try:
+        # Spawn claude
+        pty = ptyprocess.PtyProcess.spawn(
+            ['claude', '--dangerously-skip-permissions'],
+            env={**os.environ, 'TERM': 'xterm-256color', 'COLUMNS': '120', 'LINES': '40'}
+        )
+
+        logger.info(f"Claude test PTY started with PID: {pty.pid}")
+
+        # Wait for Claude to start
+        time_module.sleep(3.0)
+
+        outputs = []
+        for _ in range(20):
+            try:
+                data = pty.read_nonblocking(size=4096, timeout=0.5)
+                if data:
+                    if isinstance(data, bytes):
+                        data = data.decode('utf-8', errors='replace')
+                    outputs.append(data)
+                    logger.info(f"Claude test output: {repr(data)}")
+            except Exception as e:
+                if "Timeout" not in str(e):
+                    logger.info(f"Claude test read exception: {e}")
+                break
+
+        # Try sending a message
+        logger.info("Sending test message to Claude...")
+        pty.write(b"Say hello\n")
+        time_module.sleep(5.0)
+
+        for _ in range(20):
+            try:
+                data = pty.read_nonblocking(size=4096, timeout=0.5)
+                if data:
+                    if isinstance(data, bytes):
+                        data = data.decode('utf-8', errors='replace')
+                    outputs.append(data)
+                    logger.info(f"Claude response: {repr(data)}")
+            except Exception as e:
+                if "Timeout" not in str(e):
+                    logger.info(f"Claude read exception: {e}")
+                break
+
+        pty.terminate(force=True)
+
+        return {
+            "success": True,
+            "outputs": outputs,
+            "combined": ''.join(outputs)
+        }
+
+    except Exception as e:
+        logger.error(f"Claude test failed: {e}")
+        return {"success": False, "error": str(e)}
+
+
 @app.get("/api/debug/pty/{guid}")
 async def debug_pty_session(guid: str):
     """Debug endpoint to inspect PTY session state."""

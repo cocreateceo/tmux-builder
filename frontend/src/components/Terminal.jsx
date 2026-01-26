@@ -133,6 +133,7 @@ function Terminal({ guid, onDisconnect }) {
           if (terminalInstanceRef.current && !cleanupCalledRef.current) {
             try {
               fitAddon.fit()
+              term.focus() // Focus terminal to accept keyboard input
               setReady(true)
               console.log('[Terminal] Fit successful, rows:', term.rows, 'cols:', term.cols)
             } catch (e) {
@@ -309,13 +310,19 @@ function Terminal({ guid, onDisconnect }) {
       {/* Terminal container - must have explicit dimensions */}
       <div
         ref={containerRef}
-        className="flex-1 bg-[#1e1e1e]"
+        className="flex-1 bg-[#1e1e1e] cursor-text"
         style={{
           padding: '8px',
           minHeight: '400px',
           height: '100%',
           width: '100%',
           overflow: 'hidden'
+        }}
+        onClick={() => {
+          // Focus terminal on click
+          if (terminalInstanceRef.current?.term) {
+            terminalInstanceRef.current.term.focus()
+          }
         }}
       />
     </div>

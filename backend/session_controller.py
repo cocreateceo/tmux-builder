@@ -2,14 +2,13 @@
 High-level session orchestration with file-based REPL protocol.
 
 Message Loop Protocol:
-1. Health check (verify CLI responsive)
-2. Backend clears ack.marker and completed.marker
-3. Backend writes prompt to prompt.txt (first msg includes autonomous prompt)
-4. Backend sends: "Read prompt.txt, create ack.marker, process, create completed.marker"
-5. Claude creates ack.marker (prompt received)
-6. Claude updates status.json as it works
-7. Claude creates completed.marker when done
-8. Backend reads response
+1. Backend clears ack.marker and completed.marker
+2. Backend writes prompt to prompt.txt
+3. Backend sends: "Read prompt.txt, create ack.marker, process, create completed.marker"
+4. Claude creates ack.marker (prompt received)
+5. Claude updates status.json as it works
+6. Claude creates completed.marker when done
+7. Backend reads response
 """
 
 import json
@@ -36,7 +35,6 @@ from config import (
     COMPLETED_MARKER_TIMEOUT,
 )
 from tmux_helper import TmuxHelper
-from prompt_manager import PromptManager
 from marker_utils import (
     wait_for_marker,
     clear_for_new_message,
@@ -48,8 +46,6 @@ logger = logging.getLogger(__name__)
 
 class SessionController:
     """Manages Claude CLI sessions via tmux with marker-based protocol."""
-
-    HEALTH_CHECK_TIMEOUT = 10  # seconds for health check
 
     def __init__(self, guid: str):
         """
@@ -66,7 +62,6 @@ class SessionController:
         self.prompt_file_path = get_prompt_file(guid)
         self.status_file_path = get_status_file(guid)
         self.session_name = f"{SESSION_PREFIX}_{guid}"
-        self.prompt_manager = PromptManager()
 
         logger.info(f"Session path: {self.session_path}")
         logger.info(f"Session name: {self.session_name}")
@@ -76,13 +71,12 @@ class SessionController:
         Send a message to Claude using file-based REPL protocol.
 
         Protocol:
-        1. Health check (verify CLI responsive)
-        2. Clear ack.marker and completed.marker
-        3. Write prompt to prompt.txt (first msg includes autonomous prompt)
-        4. Send instruction to read and process
-        5. Wait for ack.marker (prompt received)
-        6. Wait for completed.marker (processing done)
-        7. Read response from status.json or chat history
+        1. Clear ack.marker and completed.marker
+        2. Write message to prompt.txt
+        3. Send instruction to read and process
+        4. Wait for ack.marker (prompt received)
+        5. Wait for completed.marker (processing done)
+        6. Read response from status.json or chat history
 
         Args:
             message: User message to send
@@ -95,67 +89,40 @@ class SessionController:
         logger.info(f"Message: {message[:100]}...")
 
         try:
-            # Step 1: Health check - verify CLI is responsive
-            logger.info("Step 1: Health check...")
-            if not self._health_check():
-                logger.error("Health check failed - CLI not responsive")
-                return "Claude CLI is not responsive. Please try recreating the session."
-
-            # Step 2: Clear markers for new message
-            logger.info("Step 2: Clearing markers...")
+            # Step 1: Clear markers for new message
+            logger.info("Step 1: Clearing markers...")
             clear_for_new_message(self.guid)
 
-            # Step 3: Append user message to history
-            logger.info("Step 3: Appending user message to history...")
+            # Step 2: Append user message to history
+            logger.info("Step 2: Appending user message to history...")
             self._append_to_history("user", message)
 
-            # Step 4: Check if this is the first message (needs full prompt)
-            is_first_message = self._is_first_message()
-            logger.info(f"Step 4: First message: {is_first_message}")
-
-            # Step 5: Build prompt content
-            if is_first_message:
-                logger.info("Step 5: Building full autonomous prompt with user request...")
-                prompt_content = self._build_first_message_prompt(message)
-            else:
-                logger.info("Step 5: Using simple user message...")
-                prompt_content = message
-
-            # Step 6: Write prompt to prompt.txt
-            logger.info("Step 6: Writing prompt to file...")
+            # Step 3: Write message to prompt.txt
+            logger.info("Step 3: Writing prompt to file...")
             self.prompt_file_path.parent.mkdir(parents=True, exist_ok=True)
-            self.prompt_file_path.write_text(prompt_content)
-            logger.info(f"Prompt written to: {self.prompt_file_path} ({len(prompt_content)} chars)")
+            self.prompt_file_path.write_text(message)
+            logger.info(f"Prompt written to: {self.prompt_file_path}")
 
-            # Step 7: Update status to processing
+            # Step 4: Update status to processing
             self._update_status("processing", 10, "Processing user request")
 
-            # Step 8: Get marker paths for instruction
+            # Step 5: Get marker paths for instruction
             ack_marker_path = get_marker_file(self.guid, ACK_MARKER)
             completed_marker_path = get_marker_file(self.guid, COMPLETED_MARKER)
 
-            # Step 9: Build instruction based on message type
-            if is_first_message:
-                # First message: pre-authorized autonomous session
-                instruction = (
-                    f"This is a pre-authorized autonomous session. "
-                    f"Read {self.prompt_file_path} and execute immediately. "
-                    f"Create {ack_marker_path} when you start, {completed_marker_path} when done. "
-                    f"Save responses to {self.chat_history_path}."
-                )
-            else:
-                # Subsequent messages: simpler instruction
-                instruction = (
-                    f"Read the user message from {self.prompt_file_path}, process it, "
-                    f"save response to {self.chat_history_path}, "
-                    f"then create {ack_marker_path} and {completed_marker_path} when done."
-                )
+            # Step 6: Send instruction to Claude with retry logic
+            # Single-line instruction (avoid multi-line issues with tmux)
+            instruction = (
+                f"Read the user message from {self.prompt_file_path}, process it, "
+                f"save response to {self.chat_history_path}, "
+                f"then create {ack_marker_path} and {completed_marker_path} when done."
+            )
 
             max_retries = 3
             ack_received = False
 
             for attempt in range(1, max_retries + 1):
-                logger.info(f"Step 10: Attempt {attempt}/{max_retries} - Sending process instruction...")
+                logger.info(f"Step 6: Attempt {attempt}/{max_retries} - Sending process instruction...")
 
                 # Clear stale ack marker before retry
                 delete_marker(self.guid, ACK_MARKER)
@@ -164,10 +131,9 @@ class SessionController:
                     logger.error("Failed to send instruction via tmux")
                     return None
 
-                # Wait for ack.marker - use longer timeout for first message
-                ack_timeout = ACK_MARKER_TIMEOUT * 2 if is_first_message else ACK_MARKER_TIMEOUT
-                logger.info(f"Waiting for ack.marker (timeout: {ack_timeout}s)...")
-                if wait_for_marker(self.guid, ACK_MARKER, timeout=ack_timeout):
+                # Wait for ack.marker
+                logger.info(f"Waiting for ack.marker (timeout: {ACK_MARKER_TIMEOUT}s)...")
+                if wait_for_marker(self.guid, ACK_MARKER, timeout=ACK_MARKER_TIMEOUT):
                     logger.info("ack.marker received")
                     ack_received = True
                     break
@@ -182,19 +148,15 @@ class SessionController:
                 logger.error(f"Failed to receive ack.marker after {max_retries} attempts")
                 return "Claude did not acknowledge the message after multiple attempts. Please try again."
 
-            # Mark first message as sent
-            if is_first_message:
-                self._mark_first_message_sent()
-
-            # Step 11: Wait for completed.marker
-            logger.info(f"Step 11: Waiting for completed.marker (timeout: {timeout}s)...")
+            # Step 8: Wait for completed.marker
+            logger.info(f"Step 8: Waiting for completed.marker (timeout: {timeout}s)...")
             if not wait_for_marker(self.guid, COMPLETED_MARKER, timeout=timeout):
                 logger.error("Timeout waiting for completed.marker")
                 return "Timeout waiting for response. Claude may still be processing."
             logger.info("completed.marker received")
 
-            # Step 12: Read response
-            logger.info("Step 12: Reading response...")
+            # Step 9: Read response
+            logger.info("Step 9: Reading response...")
             response = self._get_latest_assistant_response()
             logger.info(f"Response: {response[:100] if response else 'None'}...")
 
@@ -204,118 +166,6 @@ class SessionController:
             logger.error(f"Error sending message: {e}", exc_info=True)
             self._update_status("error", 0, str(e))
             return None
-
-    def _health_check(self) -> bool:
-        """
-        Quick health check to verify Claude CLI is responsive.
-
-        Returns:
-            True if CLI is responsive, False otherwise
-        """
-        try:
-            # Check if tmux session exists
-            if not TmuxHelper.session_exists(self.session_name):
-                logger.warning(f"Tmux session {self.session_name} does not exist")
-                return False
-
-            # Clear ready marker
-            delete_marker(self.guid, READY_MARKER)
-
-            # Get marker path
-            ready_marker_path = get_marker_file(self.guid, READY_MARKER)
-
-            # Send simple touch command
-            TmuxHelper.send_instruction(self.session_name, f"touch {ready_marker_path}")
-
-            # Wait for marker with short timeout
-            if wait_for_marker(self.guid, READY_MARKER, timeout=self.HEALTH_CHECK_TIMEOUT):
-                logger.debug("Health check passed")
-                # Clear ready marker after check
-                delete_marker(self.guid, READY_MARKER)
-                return True
-            else:
-                logger.warning("Health check failed: timeout")
-                return False
-
-        except Exception as e:
-            logger.error(f"Health check error: {e}")
-            return False
-
-    def _is_first_message(self) -> bool:
-        """Check if this is the first message (autonomous prompt not yet sent)."""
-        try:
-            if self.status_file_path.exists():
-                status = json.loads(self.status_file_path.read_text())
-                return not status.get('first_message_sent', False)
-        except Exception as e:
-            logger.warning(f"Error checking first message status: {e}")
-        return True  # Default to first message if unknown
-
-    def _mark_first_message_sent(self):
-        """Mark that the first message (with autonomous prompt) has been sent."""
-        try:
-            status = {}
-            if self.status_file_path.exists():
-                status = json.loads(self.status_file_path.read_text())
-            status['first_message_sent'] = True
-            status['first_message_at'] = datetime.utcnow().isoformat() + 'Z'
-            self.status_file_path.write_text(json.dumps(status, indent=2))
-            logger.info("Marked first message as sent")
-        except Exception as e:
-            logger.error(f"Error marking first message sent: {e}")
-
-    def _build_first_message_prompt(self, user_message: str) -> str:
-        """
-        Build the full prompt for the first message, including autonomous agent context.
-
-        Args:
-            user_message: The user's actual request
-
-        Returns:
-            Full prompt with autonomous agent instructions + user request
-        """
-        try:
-            # Read session metadata
-            status = {}
-            if self.status_file_path.exists():
-                status = json.loads(self.status_file_path.read_text())
-
-            guid = status.get('guid', self.guid)
-            email = status.get('email', 'user@demo.local')
-            phone = status.get('phone', '0000000000')
-
-            # Get marker paths
-            ready_marker_path = get_marker_file(self.guid, READY_MARKER)
-            ack_marker_path = get_marker_file(self.guid, ACK_MARKER)
-            completed_marker_path = get_marker_file(self.guid, COMPLETED_MARKER)
-
-            # Render full autonomous agent prompt
-            system_prompt = self.prompt_manager.render_system_prompt(
-                'autonomous_agent',
-                {
-                    'guid': guid,
-                    'email': email,
-                    'phone': phone,
-                    'user_request': user_message,
-                    'session_path': str(self.session_path),
-                    'markers_path': str(self.markers_path),
-                    'aws_profile': 'sunwaretech',
-                    'ready_marker': str(ready_marker_path),
-                    'ack_marker': str(ack_marker_path),
-                    'completed_marker': str(completed_marker_path),
-                    'status_file': str(self.status_file_path),
-                    'initialized_marker': str(ready_marker_path),
-                    'processing_marker': str(ack_marker_path),
-                }
-            )
-
-            logger.info(f"Built first message prompt ({len(system_prompt)} chars)")
-            return system_prompt
-
-        except Exception as e:
-            logger.error(f"Error building first message prompt: {e}")
-            # Fallback: just return the user message
-            return user_message
 
     def get_chat_history(self) -> List[Dict]:
         """Load and return chat history from JSONL file."""

@@ -37,6 +37,17 @@ function SplitChatView() {
       // Don't set loading here either - HTTP response handles it
       console.log('[SplitChatView] Complete received');
     },
+    onSummary: (data) => {
+      // Add summary as assistant message - this is the main completion response
+      if (data.message) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: data.message,
+          timestamp: data.timestamp
+        }]);
+      }
+      setLoading(false);
+    },
     onDeployed: (data) => {
       // Add deployed URL as assistant message
       if (data.message) {

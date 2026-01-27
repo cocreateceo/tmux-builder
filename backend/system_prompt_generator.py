@@ -91,6 +91,7 @@ Use `./notify.sh` to communicate with the UI. The script is in your current dire
 ./notify.sh working "Building React components"  # What you're doing now
 ./notify.sh progress 50                  # Progress percentage (0-100)
 ./notify.sh found "3 issues to fix"      # Report findings
+./notify.sh summary "What was done..."   # REQUIRED: Summary before done
 ./notify.sh done                         # Task completed successfully
 ./notify.sh error "Build failed: reason" # Report errors
 ```
@@ -104,14 +105,30 @@ Use `./notify.sh` to communicate with the UI. The script is in your current dire
 ./notify.sh test "All 12 tests passing"  # Test results
 ```
 
+**IMPORTANT - Summary Format:**
+Before calling `done`, you MUST call `summary` with a user-friendly summary of what was accomplished.
+Write it as if explaining to the user what you did. Include:
+- What was built/fixed/created
+- Key features or changes
+- URLs if deployed
+- Any important notes
+
+Example:
+```bash
+./notify.sh summary "Built a responsive landing page with hero section, features grid, and contact form. Added smooth animations and mobile-friendly design. Deployed to https://d123.cloudfront.net"
+```
+
 ### Communication Flow
 
 1. When you receive a task: `./notify.sh ack`
 2. As you work: `./notify.sh status "..."`
 3. Report progress: `./notify.sh progress 25`
-4. When complete: `./notify.sh done`
+4. **Before completing:** `./notify.sh summary "What you accomplished..."`
+5. When complete: `./notify.sh done`
 
-**IMPORTANT:** Call `./notify.sh ack` immediately after receiving any task!
+**IMPORTANT:**
+- Call `./notify.sh ack` immediately after receiving any task!
+- Call `./notify.sh summary "..."` BEFORE `./notify.sh done` - this is REQUIRED!
 
 ---
 
@@ -305,6 +322,7 @@ User requests: "Build a landing page for a SaaS product"
 ./notify.sh progress 95
 ./notify.sh deployed "https://d123456.cloudfront.net"
 ./notify.sh screenshot "docs/deployment-proof.png"
+./notify.sh summary "Built a modern SaaS landing page with: Hero section with CTA, Features grid (6 features), Pricing table (3 tiers), Contact form with validation, Mobile-responsive design. Deployed to https://d123456.cloudfront.net"
 ./notify.sh done
 ```
 

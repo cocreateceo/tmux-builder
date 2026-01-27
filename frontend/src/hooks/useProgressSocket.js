@@ -157,7 +157,7 @@ export function useProgressSocket(guid, handlers = {}) {
 
         // Add to activity log for most message types
         const logTypes = ['ack', 'status', 'working', 'progress', 'found', 'phase',
-                         'created', 'deployed', 'screenshot', 'test', 'done', 'complete', 'error'];
+                         'created', 'deployed', 'screenshot', 'test', 'summary', 'done', 'complete', 'error'];
         if (logTypes.includes(data.type) || !['connected', 'history', 'pong'].includes(data.type)) {
           addToActivityLog(data);
         }
@@ -219,6 +219,13 @@ export function useProgressSocket(guid, handlers = {}) {
           case 'test':
             setStatusMessage(`Test: ${data.message}`);
             handlersRef.current.onTest?.(data);
+            break;
+
+          case 'summary':
+            setStatusMessage('Task completed');
+            setPhase('complete');
+            setProgress(100);
+            handlersRef.current.onSummary?.(data);
             break;
 
           case 'response':

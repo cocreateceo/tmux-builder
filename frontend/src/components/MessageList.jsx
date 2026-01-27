@@ -41,21 +41,27 @@ function MessageList({ messages, loading }) {
             </div>
 
             {/* Message content */}
-            <div className="prose prose-sm max-w-none">
+            <div className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-headings:font-bold prose-h2:text-base prose-h3:text-sm prose-ul:my-2 prose-li:my-0.5 prose-p:my-2 prose-strong:text-gray-900">
               {message.role === 'assistant' ? (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
+                    h2: ({ children }) => <h2 className="text-base font-bold mt-3 mb-2 text-gray-800">{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-sm font-semibold mt-2 mb-1 text-gray-700">{children}</h3>,
+                    ul: ({ children }) => <ul className="list-disc pl-4 my-2 space-y-1">{children}</ul>,
+                    li: ({ children }) => <li className="text-sm">{children}</li>,
+                    p: ({ children }) => <p className="my-2 text-sm">{children}</p>,
+                    strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+                    a: ({ href, children }) => <a href={href} className="text-blue-600 underline" target="_blank" rel="noopener noreferrer">{children}</a>,
                     code: ({ node, inline, className, children, ...props }) => {
-                      const match = /language-(\w+)/.exec(className || '');
                       return !inline ? (
-                        <pre className="bg-gray-800 text-gray-100 p-3 rounded overflow-x-auto">
+                        <pre className="bg-gray-800 text-gray-100 p-3 rounded overflow-x-auto text-xs">
                           <code className={className} {...props}>
                             {children}
                           </code>
                         </pre>
                       ) : (
-                        <code className="bg-gray-200 text-gray-800 px-1 py-0.5 rounded" {...props}>
+                        <code className="bg-gray-200 text-gray-800 px-1 py-0.5 rounded text-xs" {...props}>
                           {children}
                         </code>
                       );

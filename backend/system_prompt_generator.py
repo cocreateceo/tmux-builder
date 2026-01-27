@@ -105,17 +105,35 @@ Use `./notify.sh` to communicate with the UI. The script is in your current dire
 ./notify.sh test "All 12 tests passing"  # Test results
 ```
 
-**IMPORTANT - Summary Format:**
-Before calling `done`, you MUST call `summary` with a user-friendly summary of what was accomplished.
-Write it as if explaining to the user what you did. Include:
-- What was built/fixed/created
-- Key features or changes
-- URLs if deployed
-- Any important notes
+**IMPORTANT - Summary (REQUIRED before done):**
+Before calling `done`, you MUST write a formatted summary to `summary.md` and then call `./notify.sh summary`.
+
+1. Write your summary to `summary.md` with nice formatting (markdown, bullet points, sections)
+2. Call `./notify.sh summary` (no argument needed - backend reads the file)
 
 Example:
 ```bash
-./notify.sh summary "Built a responsive landing page with hero section, features grid, and contact form. Added smooth animations and mobile-friendly design. Deployed to https://d123.cloudfront.net"
+cat > summary.md << 'EOF'
+## Task Completed
+
+I've built a responsive landing page with the following features:
+
+### What was added:
+- Hero section with call-to-action button
+- Features grid showcasing 6 key benefits
+- Contact form with validation
+- Smooth scroll animations
+
+### Design:
+- Mobile-friendly responsive layout
+- Custom color palette with gradients
+- Modern typography
+
+**Live URL:** https://d123.cloudfront.net
+EOF
+
+./notify.sh summary
+./notify.sh done
 ```
 
 ### Communication Flow
@@ -322,7 +340,25 @@ User requests: "Build a landing page for a SaaS product"
 ./notify.sh progress 95
 ./notify.sh deployed "https://d123456.cloudfront.net"
 ./notify.sh screenshot "docs/deployment-proof.png"
-./notify.sh summary "Built a modern SaaS landing page with: Hero section with CTA, Features grid (6 features), Pricing table (3 tiers), Contact form with validation, Mobile-responsive design. Deployed to https://d123456.cloudfront.net"
+# Write formatted summary
+cat > summary.md << 'EOF'
+## SaaS Landing Page Complete
+
+### Features Built:
+- Hero section with animated CTA button
+- Features grid (6 feature cards with icons)
+- Pricing table (3 tiers: Free, Pro, Enterprise)
+- Contact form with email validation
+- Mobile-responsive design
+
+### Technical Details:
+- React 18 with Vite
+- Tailwind CSS for styling
+- Deployed to AWS CloudFront
+
+**Live URL:** https://d123456.cloudfront.net
+EOF
+./notify.sh summary
 ./notify.sh done
 ```
 

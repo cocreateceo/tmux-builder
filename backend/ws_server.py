@@ -151,12 +151,21 @@ class ProgressWebSocketServer:
                 event = self.get_ack_event(guid)
                 event.set()
                 logger.debug(f"[{guid}] Ack event signaled")
+            elif msg_type == 'summary':
+                # Read summary from summary.md file
+                summary_content = self._read_summary_file(guid)
+                if summary_content:
+                    # Update message with full summary content
+                    message['data'] = summary_content
+                    message['message'] = summary_content
+                    # Update chat_history with the formatted summary
+                    self._append_to_chat_history(guid, summary_content)
+                    logger.info(f"[{guid}] Summary loaded from file ({len(summary_content)} chars)")
             elif msg_type in ['done', 'complete', 'completed']:
                 event = self.get_done_event(guid)
                 event.set()
                 logger.debug(f"[{guid}] Done event signaled")
-                # Update chat_history with completion message
-                self._append_to_chat_history(guid, "Task completed successfully. Check the activity log for details.")
+                # Note: Chat history already updated when summary was received
             elif msg_type == 'error':
                 # Signal done event on error too (with error flag in history)
                 event = self.get_done_event(guid)
@@ -187,6 +196,24 @@ class ProgressWebSocketServer:
 
         # Persist to file
         self._persist_to_file(guid, message)
+
+    def _read_summary_file(self, guid: str) -> str:
+        """Read summary.md file from session folder."""
+        try:
+            session_path = ACTIVE_SESSIONS_DIR / guid
+            summary_file = session_path / "summary.md"
+
+            if not summary_file.exists():
+                logger.warning(f"[{guid}] summary.md not found")
+                return ""
+
+            content = summary_file.read_text().strip()
+            logger.info(f"[{guid}] Read summary.md: {len(content)} chars")
+            return content
+
+        except Exception as e:
+            logger.warning(f"Failed to read summary.md: {e}")
+            return ""
 
     def _append_to_chat_history(self, guid: str, content: str):
         """Append assistant message to chat_history.jsonl when task completes."""

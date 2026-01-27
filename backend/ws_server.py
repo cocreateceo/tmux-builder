@@ -153,11 +153,16 @@ class ProgressWebSocketServer:
                 event = self.get_done_event(guid)
                 event.set()
                 logger.debug(f"[{guid}] Done event signaled")
+                # Update chat_history with completion message
+                self._append_to_chat_history(guid, "Task completed successfully. Check the activity log for details.")
             elif msg_type == 'error':
                 # Signal done event on error too (with error flag in history)
                 event = self.get_done_event(guid)
                 event.set()
                 logger.debug(f"[{guid}] Done event signaled (error)")
+                # Update chat_history with error message
+                error_msg = message.get('data', 'An error occurred')
+                self._append_to_chat_history(guid, f"Task completed with errors: {error_msg}")
 
             # Broadcast to all subscribers of this GUID
             await self._broadcast(guid, message)
@@ -180,6 +185,29 @@ class ProgressWebSocketServer:
 
         # Persist to file
         self._persist_to_file(guid, message)
+
+    def _append_to_chat_history(self, guid: str, content: str):
+        """Append assistant message to chat_history.jsonl when task completes."""
+        try:
+            session_path = ACTIVE_SESSIONS_DIR / guid
+            if not session_path.exists():
+                logger.warning(f"Session path not found for chat history update: {guid}")
+                return
+
+            chat_history_file = session_path / "chat_history.jsonl"
+            message = {
+                "role": "assistant",
+                "content": content,
+                "timestamp": datetime.now().isoformat() + "Z"
+            }
+
+            with open(chat_history_file, 'a') as f:
+                f.write(json.dumps(message) + '\n')
+
+            logger.info(f"[{guid}] Updated chat_history with completion message")
+
+        except Exception as e:
+            logger.warning(f"Failed to update chat history: {e}")
 
     def _persist_to_file(self, guid: str, message: dict):
         """Append message to activity_log.jsonl file."""

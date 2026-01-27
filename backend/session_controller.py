@@ -58,9 +58,9 @@ class SessionController:
         Protocol:
         1. Write message to prompt.txt
         2. Send instruction with notify.sh usage
-        3. Wait for ./notify.sh ack
-        4. Wait for ./notify.sh done
-        5. Return acknowledgment (actual response comes via WebSocket)
+        3. Wait for ./notify.sh ack (short timeout)
+        4. Return immediately - don't block waiting for completion
+        5. Completion updates chat_history via ws_server when done arrives
         """
         logger.info("=== SENDING MESSAGE (notify.sh Protocol) ===")
         logger.info(f"Message: {message[:100]}...")
@@ -84,29 +84,19 @@ class SessionController:
                 logger.error("Failed to send instruction via tmux")
                 return None
 
-            # Step 5: Wait for ack via WebSocket
+            # Step 5: Wait for ack via WebSocket (short timeout - just confirm Claude received it)
             logger.info(f"Step 5: Waiting for ack (timeout: {ACK_TIMEOUT}s)...")
             ack_received = await self._wait_for_ack(timeout=ACK_TIMEOUT)
 
-            if not ack_received:
-                logger.warning("Did not receive ack - but continuing (Claude may be working)")
-
-            # Step 6: Wait for done signal
-            logger.info(f"Step 6: Waiting for completion (timeout: {timeout}s)...")
-            completed, had_error = await self._wait_for_done(timeout=timeout)
-
-            # Step 7: Return status message
-            if completed and not had_error:
-                response = "Task completed successfully. Check the activity log for details."
-            elif completed and had_error:
-                response = "Task completed with errors. Check the activity log for details."
-            else:
+            if ack_received:
                 response = "Processing your request. Watch the activity log for updates."
+            else:
+                logger.warning("Did not receive ack - Claude may still be working")
+                response = "Message sent. Claude may still be processing."
 
-            # Step 8: Save to chat history
-            logger.info("Step 8: Saving response to history...")
-            self._append_to_history("assistant", response)
-
+            # Step 6: Return immediately - don't wait for completion
+            # The ws_server will update chat_history when done arrives
+            logger.info("Step 6: Returning immediately (completion handled by ws_server)")
             logger.info(f"Response: {response}")
             return response
 

@@ -12,14 +12,44 @@ Tmux Builder: Web UI for interacting with Claude CLI through isolated tmux sessi
 
 **Key insight:** Channel 2 uses asyncio.Event for instant backend notification (not polling).
 
+**Sessions path:** `<project>/sessions/active/<guid>/` (in project directory)
+
 ## Key Files
 
-- `backend/main.py` - FastAPI app, session management, auto-create on first message
-- `backend/ws_server.py` - Progress WebSocket server with asyncio.Event signaling
-- `backend/session_controller.py` - Message orchestration, waits on events
+- `backend/main.py` - FastAPI app, session management, admin API endpoints
+- `backend/ws_server.py` - Progress WebSocket server, reads summary.md for completions
+- `backend/session_controller.py` - Message orchestration, timestamped prompt files
 - `backend/session_initializer.py` - Creates tmux session, generates notify.sh
-- `frontend/src/components/SplitChatView.jsx` - Main UI component
+- `backend/system_prompt_generator.py` - Generates system_prompt.txt
+- `frontend/src/components/SplitChatView.jsx` - Main UI with collapsible sidebar
+- `frontend/src/components/SessionSidebar.jsx` - Collapsible session list
+- `frontend/src/components/MessageList.jsx` - Chat with markdown rendering
 - `frontend/src/hooks/useProgressSocket.js` - Channel 2 WebSocket hook
+
+## Recent Changes (Jan 2026)
+
+### Timestamped Prompt Files
+- Each message creates `prompt_{timestamp_ms}.txt` to prevent CLI caching
+- Full absolute path sent in instruction to Claude
+- Fixes issue where Claude read stale cached prompt content
+
+### Summary.md for Formatted Completions
+- Claude writes formatted summary to `summary.md` before calling done
+- Backend reads file and sends full markdown to frontend
+- Frontend renders with proper styling (headers, lists, links)
+
+### Collapsible Session Sidebar
+- Toggle button on left edge (always visible)
+- Lists sessions with filter (All/Active/Completed)
+- Click session to switch, "New Session" button
+- Content area shifts when sidebar opens
+
+### Admin API Endpoints
+```
+GET  /api/admin/sessions?filter=all|active|completed
+POST /api/admin/sessions  (email, phone, initial_request)
+GET  /api/admin/sessions/{guid}
+```
 
 ## Common Patterns
 
@@ -32,6 +62,15 @@ needs_session_switch = (
 )
 ```
 
+### Timestamped prompt files (prevents caching)
+```python
+# In session_controller.py
+timestamp_ms = int(time.time() * 1000)
+prompt_filename = f"prompt_{timestamp_ms}.txt"
+prompt_path = self.session_path / prompt_filename
+# Full path sent to Claude in instruction
+```
+
 ### Event-based ack/done waiting (not polling!)
 ```python
 # In session_controller.py
@@ -40,25 +79,38 @@ event.clear()  # Reset before waiting
 await asyncio.wait_for(event.wait(), timeout=timeout)
 ```
 
+### Summary file reading
+```python
+# In ws_server.py - when 'summary' message received
+summary_content = self._read_summary_file(guid)  # Reads summary.md
+message['data'] = summary_content
+```
+
 ### UI loading state
 - Controlled by HTTP request lifecycle in handleSendMessage
 - NOT by WebSocket ack events (prevents init ack from blocking UI)
+- Cleared when summary is received (task complete)
 
 ## Gotchas
 
 - **GUID in localStorage**: Handle "null"/"undefined" strings, not just null
-- **Init ack vs message ack**: Claude sends ack on session init (health check) AND on each message - don't let init ack block UI
-- **Polling race condition**: If using polling, acks that arrive before wait loop starts get missed - use asyncio.Event instead
+- **Init ack vs message ack**: Claude sends ack on init AND each message
+- **Prompt caching**: Use timestamped filenames to force fresh reads
+- **Summary format**: Claude writes to summary.md, backend reads it
 - **tmux session name**: `tmux_builder_{guid}` format
+- **Sessions path**: Project directory, NOT home directory
 
 ## Testing
 
 ```bash
 # Start backend
-cd backend && source venv/bin/activate && python main.py
+cd backend && uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
-# Test API
-curl http://localhost:8000/
+# Start frontend
+cd frontend && npm run dev
+
+# Test admin API
+curl http://localhost:8000/api/admin/sessions?filter=all
 
 # Test chat with existing session
 curl -X POST http://localhost:8000/api/chat \
@@ -72,11 +124,25 @@ tmux list-sessions
 ## Session Folder Structure
 
 ```
-sessions/<guid>/
-├── system_prompt.txt   # Agent instructions (read once at init)
-├── notify.sh           # Progress script (GUID baked in)
-├── prompt.txt          # User message (written per message)
-├── chat_history.jsonl  # Persisted chat
-├── activity_log.jsonl  # Persisted activity log
-└── status.json         # Session state
+sessions/active/<guid>/
+├── system_prompt.txt      # Agent instructions (read once at init)
+├── notify.sh              # Progress script (GUID baked in)
+├── prompt_{timestamp}.txt # User message (unique per message)
+├── summary.md             # Formatted completion summary
+├── chat_history.jsonl     # Persisted chat
+├── activity_log.jsonl     # Persisted activity log
+├── status.json            # Session state
+├── tmp/                   # Scratch work
+├── code/                  # Generated code
+├── infrastructure/        # IaC files
+└── docs/                  # Documentation
 ```
+
+## Claude Completion Flow
+
+1. Claude finishes task
+2. Claude writes formatted summary to `summary.md`
+3. Claude calls `./notify.sh summary`
+4. Backend reads `summary.md`, sends to frontend via WebSocket
+5. Frontend displays markdown-rendered summary in chat
+6. Claude calls `./notify.sh done`

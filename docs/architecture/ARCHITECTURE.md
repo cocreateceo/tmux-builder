@@ -95,7 +95,7 @@ This replaces polling-based waiting, eliminating race conditions where acks arri
 
 Each session gets a dedicated `notify.sh` script with the session GUID baked in.
 
-**Location:** `sessions/<guid>/notify.sh`
+**Location:** `sessions/active/<guid>/notify.sh`
 
 **Usage:**
 ```bash
@@ -107,9 +107,33 @@ Each session gets a dedicated `notify.sh` script with the session GUID baked in.
 ./notify.sh working "Refactoring auth"   # What currently working on
 ./notify.sh progress 50                  # Progress percentage (0-100)
 ./notify.sh found "3 bugs in login.py"   # Report findings
+./notify.sh summary                      # Signal summary ready (reads summary.md)
 ./notify.sh done                         # Task completed
 ./notify.sh error "Config not found"     # Report error
 ```
+
+## Summary.md for Formatted Completions
+
+Claude writes a formatted markdown summary to `summary.md` before completion:
+
+```bash
+# Claude writes formatted summary
+cat > summary.md << 'EOF'
+## Task Completed
+
+### What was added:
+- Feature 1
+- Feature 2
+
+**Live URL:** https://example.cloudfront.net
+EOF
+
+# Signal backend to read it
+./notify.sh summary
+./notify.sh done
+```
+
+The backend reads `summary.md` and sends the full formatted content to the frontend, which renders it with proper markdown styling.
 
 **How it works:**
 1. Backend creates `notify.sh` from template during session initialization
@@ -166,19 +190,35 @@ The backend uses asyncio.Event for instant notification between components:
 ### Message Processing
 
 ```
-1. User sends message via Channel 1 (WebSocket to backend)
-2. Backend writes prompt.txt to session directory
-3. Backend sends tmux instruction with notify.sh guidance
-4. Claude reads prompt.txt, processes request
+1. User sends message via Channel 1 (HTTP to backend)
+2. Backend writes prompt_{timestamp}.txt to session directory (unique filename prevents caching)
+3. Backend sends tmux instruction with FULL ABSOLUTE PATH to prompt file
+4. Claude reads the prompt file, processes request
 5. Claude sends progress updates as it works:
    - ./notify.sh ack → WebSocket Server → UI
    - ./notify.sh status "Analyzing..." → WebSocket Server → UI
    - ./notify.sh working "Implementing feature" → WebSocket Server → UI
-   - ./notify.sh done → WebSocket Server → UI
-6. Backend detects completion
-7. Backend returns final response via Channel 1
-8. UI displays response and activity timeline
+6. Claude writes formatted summary to summary.md
+7. Claude calls ./notify.sh summary → Backend reads summary.md → UI displays formatted
+8. Claude calls ./notify.sh done → Backend signals completion
+9. UI displays markdown-rendered summary in chat
 ```
+
+### Timestamped Prompt Files
+
+Each message creates a unique prompt file to prevent CLI caching:
+
+```
+prompt_1706012345678.txt  # Message 1
+prompt_1706012345999.txt  # Message 2
+```
+
+The instruction sent to Claude includes the full absolute path:
+```
+NEW USER MESSAGE - Read this file NOW and execute: /full/path/to/prompt_1706012345678.txt
+```
+
+This ensures Claude CLI cannot serve cached content from a previous prompt.
 
 ## Component Responsibilities
 
@@ -204,6 +244,8 @@ Claude can use any type with notify.sh - these are common conventions:
 | `working` | What currently working on | `./notify.sh working "auth module"` |
 | `progress` | Percentage complete | `./notify.sh progress 50` |
 | `found` | Report findings | `./notify.sh found "3 issues"` |
+| `deployed` | Deployed URL | `./notify.sh deployed "https://..."` |
+| `summary` | Signal summary ready | `./notify.sh summary` (reads summary.md) |
 | `done` | Task completed | `./notify.sh done` |
 | `error` | Report error | `./notify.sh error "File not found"` |
 

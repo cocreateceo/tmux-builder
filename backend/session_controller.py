@@ -100,11 +100,11 @@ class SessionController:
             else:
                 logger.info(f"Prompt verified in {prompt_filename}")
 
-            # Step 3: Build instruction with the specific filename
-            instruction = self._build_notify_instruction(prompt_filename)
+            # Step 3: Build instruction with full path to prompt file
+            instruction = self._build_notify_instruction(prompt_path)
 
             # Step 4: Send instruction via tmux
-            logger.info("Step 4: Sending instruction via tmux...")
+            logger.info(f"Step 4: Sending instruction via tmux (prompt: {prompt_path})...")
             if not TmuxHelper.send_instruction(self.session_name, instruction):
                 logger.error("Failed to send instruction via tmux")
                 return None
@@ -167,10 +167,11 @@ class SessionController:
             else:
                 logger.info(f"Prompt verified in {prompt_filename}")
 
-            # Step 3: Build instruction with the specific filename
-            instruction = self._build_notify_instruction(prompt_filename)
+            # Step 3: Build instruction with full path to prompt file
+            instruction = self._build_notify_instruction(prompt_path)
 
             # Step 4: Send instruction via tmux
+            logger.info(f"Step 4: Sending instruction via tmux (prompt: {prompt_path})...")
             if not TmuxHelper.send_instruction(self.session_name, instruction):
                 logger.error("Failed to send instruction via tmux")
                 return None
@@ -251,17 +252,17 @@ class SessionController:
             logger.warning(f"Timeout waiting for completion from {self.guid}")
             return False, False
 
-    def _build_notify_instruction(self, prompt_filename: str = "prompt.txt") -> str:
+    def _build_notify_instruction(self, prompt_path: Path) -> str:
         """
         Build instruction telling Claude to read the prompt.
 
         Args:
-            prompt_filename: The unique prompt filename (e.g., prompt_1706012345678.txt)
+            prompt_path: Full path to the prompt file
 
-        Note: Using timestamped filenames ensures Claude CLI cannot serve cached content
-        since the file didn't exist before this request.
+        Note: Using full absolute path ensures Claude CLI finds the correct file
+        regardless of working directory or system_prompt.txt path.
         """
-        return f"""NEW USER MESSAGE in {prompt_filename} - Read it NOW and execute.
+        return f"""NEW USER MESSAGE - Read this file NOW and execute: {prompt_path}
 
 Remember: Start with ./notify.sh ack, report progress, end with ./notify.sh done"""
 

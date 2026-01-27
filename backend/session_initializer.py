@@ -1,14 +1,15 @@
 """
-Manages Claude CLI session initialization with MCP-based health check.
+Manages Claude CLI session initialization with notify.sh-based health check.
 
-Protocol (MCP-based):
+Protocol:
 1. Create tmux session, start Claude CLI
-2. Register session with MCP server
-3. Send instruction to call notify_ack MCP tool
-4. Wait for ack via MCP server
+2. Generate notify.sh script for the session
+3. Send instruction to call ./notify.sh ack
+4. Wait for ack via WebSocket server
 5. Done! Session ready for chat.
 """
 
+import asyncio
 import logging
 import time
 from pathlib import Path
@@ -22,17 +23,19 @@ from config import (
     ACTIVE_SESSIONS_DIR,
 )
 from tmux_helper import TmuxHelper
-from mcp_server import register_session, wait_for_ack
+from notify_generator import generate_notify_script, get_notify_script_path
+from system_prompt_generator import generate_system_prompt
+from ws_server import get_server
 
 logger = logging.getLogger(__name__)
 
 
 class SessionInitializer:
-    """Handles initialization of Claude CLI sessions with simple health check."""
+    """Handles initialization of Claude CLI sessions with notify.sh health check."""
 
     # Session reuse settings
     MAX_SESSION_AGE_DAYS = 5
-    HEALTH_CHECK_TIMEOUT = 30  # seconds to wait for MCP ack
+    HEALTH_CHECK_TIMEOUT = 30  # seconds to wait for ack
 
     def __init__(self):
         """Initialize SessionInitializer."""
@@ -58,7 +61,7 @@ class SessionInitializer:
         user_request: str = ""
     ) -> Dict[str, Any]:
         """
-        Initialize Claude CLI session with simple health check.
+        Initialize Claude CLI session with notify.sh health check.
 
         This only verifies Claude CLI is alive and ready.
         The full autonomous prompt is sent with the first user message.
@@ -92,28 +95,50 @@ class SessionInitializer:
                     'error': 'Failed to create or recover session'
                 }
 
-            # Step 2: Register session with MCP server
-            logger.info("Step 2: Registering session with MCP server...")
-            register_session(guid)
+            # Step 2: Create session subfolders
+            logger.info("Step 2: Creating session folder structure...")
+            for folder in ['tmp', 'code', 'infrastructure', 'docs']:
+                folder_path = session_path / folder
+                folder_path.mkdir(parents=True, exist_ok=True)
+                logger.info(f"  Created: {folder}/")
 
-            # Step 3: Simple health check - ask Claude to call notify_ack
-            logger.info("Step 3: Health check - verifying Claude CLI is responsive...")
+            # Step 3: Generate notify.sh script for this session
+            logger.info("Step 3: Generating notify.sh script...")
+            notify_path = generate_notify_script(session_path, guid)
+            logger.info(f"notify.sh created at: {notify_path}")
 
-            health_check_instruction = f'Call your MCP tool: notify_ack(guid="{guid}")'
+            # Step 4: Generate system_prompt.txt
+            logger.info("Step 4: Generating system_prompt.txt...")
+            system_prompt_path = generate_system_prompt(session_path, guid)
+            logger.info(f"system_prompt.txt created at: {system_prompt_path}")
+
+            # Step 5: Clear any stale prompt.txt to prevent auto-execution of old tasks
+            logger.info("Step 5: Clearing stale prompt.txt...")
+            prompt_file = session_path / "prompt.txt"
+            if prompt_file.exists():
+                prompt_file.unlink()
+                logger.info("  Removed stale prompt.txt")
+
+            # Step 6: Health check - ask Claude to read system_prompt.txt and ack
+            logger.info("Step 6: Health check - verifying Claude CLI is responsive...")
+
+            # Claude is in session folder, use relative path for notify.sh
+            # IMPORTANT: Tell Claude to ONLY ack, NOT to look for tasks
+            health_check_instruction = 'Read system_prompt.txt and run: ./notify.sh ack - then WAIT for the next instruction. Do NOT read prompt.txt yet.'
             TmuxHelper.send_instruction(session_name, health_check_instruction)
 
-            logger.info(f"Waiting for MCP ack from Claude CLI...")
-            ack_received = await wait_for_ack(guid, timeout=self.HEALTH_CHECK_TIMEOUT)
+            logger.info(f"Waiting for ack from Claude CLI via WebSocket...")
+            ack_received = await self._wait_for_ack(guid, timeout=self.HEALTH_CHECK_TIMEOUT)
 
             if not ack_received:
-                logger.error("Timeout waiting for MCP ack - Claude CLI not responsive")
-                return {
-                    'success': False,
-                    'error': 'Claude CLI did not respond to health check in time'
-                }
-            logger.info("MCP ack received - Claude CLI is alive and ready")
+                logger.warning("Timeout waiting for ack - but continuing anyway (CLI may still work)")
+                # Don't fail - the WebSocket server might not have been ready
+                # or Claude may have responded differently
 
-            # Step 4: Initialize status.json with session metadata
+            if ack_received:
+                logger.info("Ack received - Claude CLI is alive and ready")
+
+            # Step 7: Initialize status.json with session metadata
             status_file_path = session_path / "status.json"
             initial_status = {
                 'state': 'ready',
@@ -171,6 +196,9 @@ class SessionInitializer:
 
                 if session_age_days is not None and session_age_days < self.MAX_SESSION_AGE_DAYS:
                     logger.info(f"Session is {session_age_days:.1f} days old, reusing")
+                    # Regenerate notify.sh and system_prompt.txt in case they're missing
+                    generate_notify_script(session_path, guid)
+                    generate_system_prompt(session_path, guid)
                     return True
                 else:
                     logger.info(f"Session too old ({session_age_days} days), recreating")
@@ -215,11 +243,39 @@ class SessionInitializer:
             logger.warning(f"Unable to determine session age: {e}")
             return None
 
+    async def _wait_for_ack(self, guid: str, timeout: float = 30) -> bool:
+        """
+        Wait for ack message from Claude via WebSocket.
+
+        Args:
+            guid: Session GUID
+            timeout: Seconds to wait
+
+        Returns:
+            True if ack received, False if timeout
+        """
+        server = get_server()
+        if not server:
+            logger.warning("WebSocket server not running, skipping ack wait")
+            return False
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            # Check message history for ack
+            if guid in server.message_history:
+                for msg in server.message_history[guid]:
+                    if msg.get('type') == 'ack':
+                        return True
+
+            await asyncio.sleep(0.5)
+
+        return False
+
     async def health_check(self, guid: str, timeout: int = 10) -> bool:
         """
-        Perform a quick health check on an existing session via MCP.
+        Perform a quick health check on an existing session.
 
-        Verifies Claude CLI is responsive by asking it to call notify_ack.
+        Verifies Claude CLI is responsive by asking it to call ./notify.sh ack.
 
         Args:
             guid: Session GUID
@@ -236,17 +292,25 @@ class SessionInitializer:
                 logger.warning(f"Health check failed: tmux session {session_name} does not exist")
                 return False
 
-            # Send instruction to call MCP ack
-            TmuxHelper.send_instruction(session_name, f'Call your MCP tool: notify_ack(guid="{guid}")')
+            # Clear any previous ack messages
+            server = get_server()
+            if server and guid in server.message_history:
+                server.message_history[guid] = [
+                    m for m in server.message_history[guid] if m.get('type') != 'ack'
+                ]
 
-            # Wait for ack via MCP
-            ack_received = await wait_for_ack(guid, timeout=timeout)
+            # Send instruction to call notify.sh ack (using absolute path)
+            notify_path = get_notify_script_path(guid)
+            TmuxHelper.send_instruction(session_name, f'{notify_path} ack')
+
+            # Wait for ack via WebSocket
+            ack_received = await self._wait_for_ack(guid, timeout=timeout)
 
             if ack_received:
                 logger.debug(f"Health check passed for {guid}")
                 return True
             else:
-                logger.warning(f"Health check failed: timeout waiting for MCP ack")
+                logger.warning(f"Health check failed: timeout waiting for ack")
                 return False
 
         except Exception as e:

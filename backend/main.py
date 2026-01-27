@@ -4,6 +4,7 @@ import logging
 import os
 import json
 import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -11,20 +12,34 @@ from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from config import API_HOST, API_PORT, DEFAULT_USER, ACTIVE_SESSIONS_DIR
+from config import API_HOST, API_PORT, DEFAULT_USER, ACTIVE_SESSIONS_DIR, setup_logging
 from session_controller import SessionController
 from background_worker import BackgroundWorker
 from guid_generator import generate_guid
-from mcp_server import start_server_background, stop_server
+from ws_server import start_progress_server, stop_progress_server
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure centralized logging (console + file)
+setup_logging()
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Tmux Builder API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler for startup and shutdown."""
+    # Startup
+    logger.info("Starting Progress WebSocket server on port 8001...")
+    await start_progress_server(port=8001)
+    logger.info("Progress WebSocket server started!")
+
+    yield
+
+    # Shutdown
+    logger.info("Stopping Progress WebSocket server...")
+    await stop_progress_server()
+    logger.info("Progress WebSocket server stopped!")
+
+
+app = FastAPI(title="Tmux Builder API", version="1.0.0", lifespan=lifespan)
 
 # CORS middleware for frontend communication
 app.add_middleware(
@@ -45,26 +60,6 @@ session_controller: Optional[SessionController] = None
 
 # Initialize background worker
 background_worker = BackgroundWorker()
-
-
-# ============================================================================
-# Startup and Shutdown Events
-# ============================================================================
-
-@app.on_event("startup")
-async def startup_event():
-    """Start the MCP WebSocket server on app startup."""
-    logger.info("Starting MCP WebSocket server on port 8001...")
-    await start_server_background(ws_port=8001)
-    logger.info("MCP WebSocket server started!")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Stop the MCP WebSocket server on app shutdown."""
-    logger.info("Stopping MCP WebSocket server...")
-    await stop_server()
-    logger.info("MCP WebSocket server stopped!")
 
 
 # ============================================================================
@@ -420,9 +415,9 @@ async def chat(chat_message: ChatMessage):
         raise HTTPException(status_code=400, detail="Session is not active")
 
     try:
-        # Send message and wait for response
+        # Send message and wait for response (use async version)
         logger.info("Sending message to Claude...")
-        response = session_controller.send_message(chat_message.message)
+        response = await session_controller.send_message_async(chat_message.message)
         logger.info(f"Got response: {response[:100] if response else 'None'}...")
 
         if response is None:
@@ -683,13 +678,8 @@ async def process_message_async(
 ):
     """Process a chat message asynchronously."""
     try:
-        # Run the blocking send_message in a thread pool
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            controller.send_message,
-            content
-        )
+        # Use async version directly
+        response = await controller.send_message_async(content)
 
         # Send response back
         await websocket.send_json({

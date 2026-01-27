@@ -1,19 +1,19 @@
 """
-High-level session orchestration with MCP-based protocol.
+High-level session orchestration with notify.sh-based protocol.
 
 Message Loop Protocol:
 1. Backend writes prompt to prompt.txt
-2. Backend sends instruction with MCP tool usage instructions
-3. Claude calls notify_ack() via MCP
-4. Claude processes, calling send_progress/send_status
-5. Claude calls send_response() with content
-6. Claude calls notify_complete()
-7. Backend reads response from MCP cache
+2. Backend sends instruction with notify.sh usage instructions
+3. Claude calls ./notify.sh ack
+4. Claude processes, calling ./notify.sh status "..."
+5. Claude calls ./notify.sh done when complete
+6. Backend reads response from tmux output
 """
 
 import asyncio
 import json
 import logging
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict
@@ -24,27 +24,19 @@ from config import (
     PROMPT_FILE,
     STATUS_FILE,
     ACTIVE_SESSIONS_DIR,
+    ACK_TIMEOUT,
+    RESPONSE_TIMEOUT,
     get_prompt_file,
     get_status_file,
 )
 from tmux_helper import TmuxHelper
-from mcp_server import (
-    register_session,
-    reset_session,
-    wait_for_ack,
-    wait_for_response,
-    get_response,
-)
+from ws_server import get_server
 
 logger = logging.getLogger(__name__)
 
-# Timeouts for MCP-based protocol
-MCP_ACK_TIMEOUT = 30  # seconds
-MCP_RESPONSE_TIMEOUT = 300  # seconds
-
 
 class SessionController:
-    """Manages Claude CLI sessions via tmux with MCP-based protocol."""
+    """Manages Claude CLI sessions via tmux with notify.sh-based protocol."""
 
     def __init__(self, guid: str):
         """Initialize SessionController for a GUID-based session."""
@@ -56,106 +48,187 @@ class SessionController:
         self.status_file_path = get_status_file(guid)
         self.session_name = f"{SESSION_PREFIX}_{guid}"
 
-        # Register session with MCP server
-        register_session(guid)
-
         logger.info(f"Session path: {self.session_path}")
         logger.info(f"Session name: {self.session_name}")
 
-    def send_message(self, message: str, timeout: float = MCP_RESPONSE_TIMEOUT) -> Optional[str]:
+    async def send_message_async(self, message: str, timeout: float = RESPONSE_TIMEOUT) -> Optional[str]:
         """
-        Send a message to Claude using MCP-based protocol.
+        Send a message to Claude using notify.sh-based protocol (async version).
 
         Protocol:
-        1. Reset MCP session state
-        2. Write message to prompt.txt
-        3. Send instruction with MCP tool usage
-        4. Wait for notify_ack via MCP
-        5. Wait for notify_complete via MCP
-        6. Read response from MCP cache
+        1. Write message to prompt.txt
+        2. Send instruction with notify.sh usage
+        3. Wait for ./notify.sh ack
+        4. Wait for ./notify.sh done
+        5. Return acknowledgment (actual response comes via WebSocket)
         """
-        logger.info("=== SENDING MESSAGE (MCP Protocol) ===")
+        logger.info("=== SENDING MESSAGE (notify.sh Protocol) ===")
         logger.info(f"Message: {message[:100]}...")
 
         try:
-            # Step 1: Reset MCP session state
-            logger.info("Step 1: Resetting MCP session state...")
-            reset_session(self.guid)
-
-            # Step 2: Append user message to history
-            logger.info("Step 2: Appending user message to history...")
+            # Step 1: Append user message to history
+            logger.info("Step 1: Appending user message to history...")
             self._append_to_history("user", message)
 
-            # Step 3: Write message to prompt.txt
-            logger.info("Step 3: Writing prompt to file...")
+            # Step 2: Write message to prompt.txt
+            logger.info("Step 2: Writing prompt to file...")
             self.prompt_file_path.parent.mkdir(parents=True, exist_ok=True)
             self.prompt_file_path.write_text(message)
 
-            # Step 4: Build instruction with MCP tool usage
-            instruction = self._build_mcp_instruction()
+            # Step 3: Build instruction with notify.sh usage
+            instruction = self._build_notify_instruction()
 
-            # Step 5: Send instruction via tmux
-            logger.info("Step 5: Sending instruction via tmux...")
+            # Step 4: Send instruction via tmux
+            logger.info("Step 4: Sending instruction via tmux...")
             if not TmuxHelper.send_instruction(self.session_name, instruction):
                 logger.error("Failed to send instruction via tmux")
                 return None
 
-            # Step 6: Wait for ack via MCP (async in sync context)
-            logger.info(f"Step 6: Waiting for MCP ack (timeout: {MCP_ACK_TIMEOUT}s)...")
-            loop = asyncio.new_event_loop()
-            try:
-                ack_received = loop.run_until_complete(
-                    wait_for_ack(self.guid, timeout=MCP_ACK_TIMEOUT)
-                )
-            finally:
-                loop.close()
+            # Step 5: Wait for ack via WebSocket
+            logger.info(f"Step 5: Waiting for ack (timeout: {ACK_TIMEOUT}s)...")
+            ack_received = await self._wait_for_ack(timeout=ACK_TIMEOUT)
 
             if not ack_received:
-                logger.error("Failed to receive MCP ack")
-                return "Claude did not acknowledge the message. Please try again."
+                logger.warning("Did not receive ack - but continuing (Claude may be working)")
 
-            logger.info("MCP ack received!")
+            # Step 6: Wait for done signal
+            logger.info(f"Step 6: Waiting for completion (timeout: {timeout}s)...")
+            completed, had_error = await self._wait_for_done(timeout=timeout)
 
-            # Step 7: Wait for response via MCP
-            logger.info(f"Step 7: Waiting for MCP response (timeout: {timeout}s)...")
-            loop = asyncio.new_event_loop()
-            try:
-                response = loop.run_until_complete(
-                    wait_for_response(self.guid, timeout=timeout)
-                )
-            finally:
-                loop.close()
-
-            if not response:
-                logger.error("Failed to receive MCP response")
-                return "Timeout waiting for response."
+            # Step 7: Return status message
+            if completed and not had_error:
+                response = "Task completed successfully. Check the activity log for details."
+            elif completed and had_error:
+                response = "Task completed with errors. Check the activity log for details."
+            else:
+                response = "Processing your request. Watch the activity log for updates."
 
             # Step 8: Save to chat history
             logger.info("Step 8: Saving response to history...")
             self._append_to_history("assistant", response)
 
-            logger.info(f"Response received: {response[:100]}...")
+            logger.info(f"Response: {response}")
             return response
 
         except Exception as e:
             logger.error(f"Error sending message: {e}", exc_info=True)
             return None
 
-    def _build_mcp_instruction(self) -> str:
-        """Build instruction telling Claude to use MCP tools."""
-        return f"""Read the user message from {self.prompt_file_path}.
+    def send_message(self, message: str, timeout: float = RESPONSE_TIMEOUT) -> Optional[str]:
+        """
+        Send a message to Claude (sync wrapper - use send_message_async when possible).
 
-IMPORTANT: Use your MCP tools to communicate progress:
+        Note: This creates a fire-and-forget task. For proper async handling,
+        use send_message_async directly.
+        """
+        logger.info("=== SENDING MESSAGE (sync wrapper) ===")
+        logger.info(f"Message: {message[:100]}...")
 
-1. IMMEDIATELY call: notify_ack(guid="{self.guid}")
-2. As you work, call: send_progress(guid="{self.guid}", percent=N) where N is 0-100
-3. For status updates: send_status(guid="{self.guid}", message="...", phase="analyzing|planning|implementing|deploying|verifying")
-4. When done, call: send_response(guid="{self.guid}", content="your full response here")
-5. Finally call: notify_complete(guid="{self.guid}", success=true)
+        try:
+            # Step 1: Append user message to history
+            self._append_to_history("user", message)
 
-If you encounter errors: notify_error(guid="{self.guid}", error="description", recoverable=false)
+            # Step 2: Write message to prompt.txt
+            self.prompt_file_path.parent.mkdir(parents=True, exist_ok=True)
+            self.prompt_file_path.write_text(message)
 
-Now process the user's request and use these MCP tools to report your progress."""
+            # Step 3: Build instruction with notify.sh usage
+            instruction = self._build_notify_instruction()
+
+            # Step 4: Send instruction via tmux
+            if not TmuxHelper.send_instruction(self.session_name, instruction):
+                logger.error("Failed to send instruction via tmux")
+                return None
+
+            # Return immediately - actual progress comes via WebSocket
+            response = "Message sent. Watch the activity log for progress updates."
+            self._append_to_history("assistant", response)
+            return response
+
+        except Exception as e:
+            logger.error(f"Error sending message: {e}", exc_info=True)
+            return None
+
+    async def _wait_for_ack(self, timeout: float = ACK_TIMEOUT) -> bool:
+        """Wait for ack message from Claude via WebSocket."""
+        server = get_server()
+        if not server:
+            logger.warning("WebSocket server not running, skipping ack wait")
+            return False
+
+        # Clear any previous ack messages to avoid false positives
+        if self.guid in server.message_history:
+            server.message_history[self.guid] = [
+                m for m in server.message_history[self.guid] if m.get('type') != 'ack'
+            ]
+            logger.debug(f"Cleared old ack messages for {self.guid}")
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            # Check message history for ack
+            if self.guid in server.message_history:
+                for msg in server.message_history[self.guid]:
+                    if msg.get('type') == 'ack':
+                        logger.info(f"Received ack from Claude for {self.guid}")
+                        return True
+
+            await asyncio.sleep(0.5)
+
+        logger.warning(f"Timeout waiting for ack from {self.guid}")
+        return False
+
+    async def _wait_for_done(self, timeout: float = RESPONSE_TIMEOUT) -> tuple[bool, bool]:
+        """
+        Wait for done or error message from Claude via WebSocket.
+
+        Returns:
+            Tuple of (completed, had_error)
+            - (True, False) = completed successfully
+            - (True, True) = completed with error
+            - (False, False) = timeout
+        """
+        server = get_server()
+        if not server:
+            logger.warning("WebSocket server not running, skipping done wait")
+            return False, False
+
+        # Clear any previous done/error messages to avoid false positives
+        if self.guid in server.message_history:
+            server.message_history[self.guid] = [
+                m for m in server.message_history[self.guid]
+                if m.get('type') not in ['done', 'complete', 'completed', 'error']
+            ]
+            logger.debug(f"Cleared old completion messages for {self.guid}")
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            # Check message history for done or error
+            if self.guid in server.message_history:
+                for msg in server.message_history[self.guid]:
+                    msg_type = msg.get('type')
+                    if msg_type in ['done', 'complete', 'completed']:
+                        logger.info(f"Task completed successfully for {self.guid}")
+                        return True, False
+                    elif msg_type == 'error':
+                        error_data = msg.get('data', 'Unknown error')
+                        logger.error(f"Task error for {self.guid}: {error_data}")
+                        return True, True
+
+            await asyncio.sleep(1.0)
+
+        logger.warning(f"Timeout waiting for completion from {self.guid}")
+        return False, False
+
+    def _build_notify_instruction(self) -> str:
+        """
+        Build instruction telling Claude to read the prompt.
+
+        Note: Claude already has system_prompt.txt with all notify.sh instructions,
+        so we just tell it to read the new message and process it.
+        """
+        return f"""New task in prompt.txt. Read it and execute.
+
+Remember: Start with ./notify.sh ack, report progress, end with ./notify.sh done"""
 
     def get_chat_history(self) -> List[Dict]:
         """Load and return chat history from JSONL file."""
@@ -201,8 +274,10 @@ Now process the user's request and use these MCP tools to report your progress."
             if self.prompt_file_path.exists():
                 self.prompt_file_path.unlink()
 
-            # Reset MCP session
-            reset_session(self.guid)
+            # Clear message history from WebSocket server
+            server = get_server()
+            if server and self.guid in server.message_history:
+                del server.message_history[self.guid]
 
             logger.info(f"Session {self.guid} cleared")
             return True

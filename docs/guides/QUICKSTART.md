@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get Tmux Builder running in 2 minutes!
+Get Tmux Builder running in 5 minutes.
 
 ## Prerequisites Check
 
@@ -8,227 +8,174 @@ Get Tmux Builder running in 2 minutes!
 # Check Python
 python3 --version  # Need 3.8+
 
+# Check Node.js
+node --version     # Need 16+
+
 # Check tmux
-tmux -V           # Need tmux installed
+tmux -V            # Need tmux installed
 
 # Check Claude CLI
-claude --version  # Need Claude CLI configured
+claude --version   # Need Claude CLI configured
+
+# Check Python websockets
+python3 -c "import websockets; print('OK')"  # Need websockets package
 ```
 
-## Setup & Run
+## Setup
 
-### 1. Navigate to Backend
+### 1. Install Dependencies
+
+```bash
+# Backend
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Frontend (in new terminal)
+cd frontend
+npm install
+```
+
+### 2. Start Backend Server
 
 ```bash
 cd backend
-```
-
-### 2. Run Integration Test
-
-```bash
-python3 test_tmux_integration.py
+source venv/bin/activate
+python main.py
 ```
 
 **Expected output:**
 ```
 ============================================================
-tmux-builder Configuration
+TMUX BUILDER BACKEND SERVER
 ============================================================
-✓ Claude CLI found: claude
-✓ Using flags: --dangerously-skip-permissions
-
+Starting API on 0.0.0.0:8000
+Starting Progress WebSocket server on port 8001
+Frontend CORS: http://localhost:5173
 ============================================================
-TEST 1: Echo Test (File-Based I/O)
-============================================================
-✓ Session created: /path/to/sessions/active/test_20260124_123456
-✓ Job created: job_123456
 
-📝 Executing job (this will take ~30-60 seconds)...
-   - Creating TMUX session
-   - Starting Claude CLI
-   - Writing prompt to disk
-   - Sending instruction to Claude
-   - Waiting for output file...
-
-✅ TEST PASSED!
-
-Job Status: completed
-Output Path: /path/to/output/echo_output_123456.txt
+INFO:     Started server process
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000
 ```
 
-## What Just Happened?
+### 3. Start Frontend Dev Server
 
-The test demonstrated the **SmartBuild file-based I/O pattern**:
+```bash
+cd frontend
+npm run dev
+```
 
-1. ✅ Created a session directory
-2. ✅ Wrote a prompt file to disk
-3. ✅ Created an isolated TMUX session with Claude CLI
-4. ✅ Sent instruction to Claude to read the prompt file
-5. ✅ Claude wrote response to output file
-6. ✅ System detected completion via file monitoring
-7. ✅ Cleaned up TMUX session
+### 4. Access the Application
 
-## Programmatic Usage
+Open browser: **http://localhost:5173**
 
-```python
-from session_manager import SessionManager
-from job_queue_manager import JobQueueManager
+## Using the Application
 
-# Create session
-session_id = "my_automation_123"
-SessionManager.create_session(session_id, {
-    'description': 'My automation session'
-})
+1. **Create Session**: Click "Create Session" button
+   - Creates a tmux session with Claude CLI
+   - Generates `notify.sh` script for progress updates
+   - Wait for "Session ready" status
 
-# Add and execute job
-job = {
-    'id': 'job_1',
-    'type': 'echo_test',
-    'message': 'Hello from my script!'
-}
-SessionManager.add_job(session_id, job)
-success = JobQueueManager.execute_job(session_id, 'job_1')
+2. **Send Messages**: Type message and press Enter
+   - Watch the Activity Log panel (right side) for real-time progress
+   - See updates: `ACK`, `STATUS`, `WORKING`, `DONE`, etc.
 
-# Get output
-if success:
-    job = SessionManager.get_job(session_id, 'job_1')
-    with open(job['output_path'], 'r') as f:
-        print(f.read())
+3. **Monitor Progress**:
+   - Channel 1 (Port 8000): Chat messages
+   - Channel 2 (Port 8001): Real-time activity updates
+
+## Architecture Overview
+
+```
+Browser (React UI)
+    │
+    ├──[Port 8000]──► FastAPI Backend
+    │                     │
+    │                     ├──► tmux session ──► Claude CLI
+    │                     │
+    │                     └──► generates notify.sh
+    │
+    └──[Port 8001]──► Progress WebSocket Server (real-time updates)
+
+Claude CLI ──► ./notify.sh ──► WebSocket Server ──► UI
 ```
 
 ## Troubleshooting
 
-### "Claude CLI not found"
+### "notify.sh not working"
+
 ```bash
-# Verify Claude CLI is installed
-which claude
-claude --version
+# Check notify.sh exists and has correct GUID
+cat sessions/<guid>/notify.sh | grep GUID
 
-# If not found, install from: https://claude.ai/download
+# Test manually
+cd sessions/<guid>
+./notify.sh test "hello"
+
+# Check websockets installed
+python3 -c "import websockets; print('OK')"
 ```
 
-### "tmux is not installed"
+### "Session creation times out"
+
 ```bash
-# Install tmux
-sudo apt-get install tmux
+# Check backend is running
+curl http://localhost:8000/
 
-# Verify installation
-tmux -V
+# Check WebSocket server is running (see logs)
+
+# View tmux session
+tmux list-sessions
+tmux attach -t tmux_builder_*
 ```
 
-### Job timeouts
-- Check session logs: `sessions/active/<session_id>/logs/session_<id>.log`
-- Increase timeout in `backend/config.py` if needed
-- Attach to TMUX session to see Claude: `tmux attach -t tmux_builder_job_*`
+### "Port already in use"
 
-## What's Happening Behind the Scenes?
+```bash
+# Kill existing processes
+lsof -i :8000  # Backend
+lsof -i :8001  # Progress WebSocket
 
-```
-Job Created
-    ↓
-TMUX session created (isolated)
-    ↓
-Prompt written to: prompts/job_<timestamp>.txt
-    ↓
-Instruction sent via TMUX: "Read prompt file and write output"
-    ↓
-Claude CLI reads prompt
-    ↓
-Claude writes response to: output/job_output_<timestamp>.txt
-    ↓
-System monitors file (exists + mtime + size)
-    ↓
-Completion detected!
+# Restart backend
 ```
 
 ## Project Structure
 
 ```
 tmux-builder/
-├── backend/                      # Python backend modules
-│   ├── config.py                 # Configuration
-│   ├── session_manager.py        # Session/job persistence
-│   ├── job_queue_manager.py      # Job execution
-│   ├── prompt_preparer.py        # Prompt generation
-│   ├── tmux_helper.py            # TMUX operations
-│   └── test_tmux_integration.py  # ← ENTRY POINT
-└── sessions/                     # Runtime storage (auto-created)
-    ├── active/
-    │   └── <session_id>/
-    │       ├── prompts/          # Prompt files
-    │       ├── output/           # Claude's responses
-    │       ├── logs/             # Session logs
-    │       ├── metadata.json     # Session metadata
-    │       └── job_queue.json    # Job queue
-    └── deleted/                  # Archived sessions
+├── backend/
+│   ├── main.py                    # FastAPI server
+│   ├── ws_server.py               # Progress WebSocket server
+│   ├── system_prompt_generator.py # Generate system_prompt.txt
+│   ├── notify_generator.py        # Generate notify.sh from template
+│   ├── scripts/
+│   │   └── notify_template.sh     # Template with {{GUID}} placeholder
+│   ├── session_controller.py      # Message orchestration
+│   └── tmux_helper.py             # TMUX operations
+├── frontend/
+│   └── src/
+│       ├── components/
+│       │   ├── SplitChatView.jsx  # Main UI with dual panels
+│       │   └── McpToolsLog.jsx    # Activity log panel
+│       └── hooks/
+│           └── useProgressSocket.js  # Progress WebSocket hook
+├── sessions/
+│   └── <guid>/
+│       ├── system_prompt.txt      # Autonomous agent instructions
+│       ├── notify.sh              # Generated script (GUID baked in)
+│       ├── prompt.txt             # User task
+│       ├── tmp/                   # Scratch work
+│       ├── code/                  # Application code
+│       ├── infrastructure/        # IaC files
+│       └── docs/                  # Documentation
+└── docs/
+    └── architecture/
+        └── ARCHITECTURE.md        # Full architecture details
 ```
 
 ## Next Steps
 
-- Read [README.md](README.md) for overview and usage examples
-- Read [ARCHITECTURE.md](ARCHITECTURE.md) for technical deep dive
+- Read [ARCHITECTURE.md](../architecture/ARCHITECTURE.md) for full technical details
 - Read [SETUP.md](SETUP.md) for detailed setup instructions
-- Explore session files in `sessions/active/` to see generated artifacts
-
-## Key Features
-
-✅ **File-based I/O**: Prompts/outputs via files (SmartBuild pattern)
-✅ **Isolated TMUX sessions**: Each job runs independently
-✅ **No dependencies**: Python stdlib only
-✅ **Persistent artifacts**: All prompts/outputs saved
-✅ **Reliable completion detection**: File monitoring (no parsing)
-✅ **Comprehensive logging**: Session event logs
-✅ **WSL2 compatible**: Proven timing patterns
-
-## Inspect Session Artifacts
-
-```bash
-# List active sessions
-ls sessions/active/
-
-# View session structure
-tree sessions/active/test_<timestamp>/
-
-# Read prompt file
-cat sessions/active/test_<timestamp>/prompts/echo_test_*.txt
-
-# Read Claude's output
-cat sessions/active/test_<timestamp>/output/echo_output_*.txt
-
-# View session log
-cat sessions/active/test_<timestamp>/logs/session_*.log
-```
-
-## Debug Live TMUX Sessions
-
-```bash
-# List active TMUX sessions
-tmux list-sessions
-
-# Attach to job session (watch Claude in real-time)
-tmux attach -t tmux_builder_job_<job_id>
-
-# Detach from session: Press Ctrl+B then D
-
-# Capture pane output without attaching
-tmux capture-pane -t tmux_builder_job_<job_id> -p
-```
-
-## Clean Up
-
-```bash
-# Kill all TMUX sessions
-tmux kill-server
-
-# Delete session directories
-rm -rf sessions/active/*
-rm -rf sessions/deleted/*
-```
-
-## Job Types Available
-
-1. **echo_test**: Simple echo (testing) - 60s timeout
-2. **file_analysis**: Analyze files and generate reports - 300s timeout
-3. **generic**: Custom prompts - 300s timeout (configurable)
-
-Happy building! 🚀

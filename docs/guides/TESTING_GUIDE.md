@@ -1,11 +1,29 @@
 # Testing Guide - Tmux Builder UI
 
+Testing the dual-channel MCP architecture.
+
 ## Prerequisites
 
-✅ Python 3.8+ installed
-✅ Node.js 16+ installed
-✅ tmux installed
-✅ Claude CLI installed and configured
+- Python 3.8+ installed
+- Node.js 16+ installed
+- tmux installed
+- Claude CLI installed and configured
+- **MCP server registered at user scope** (see Setup section)
+
+## Setup
+
+### Register MCP Server (One Time)
+
+```bash
+cd /mnt/c/Development/Builder-CLI/tmux-builder
+
+# Register MCP server at user scope
+claude mcp add --scope user tmux-progress -- python3 $(pwd)/backend/mcp_server/server.py
+
+# Verify
+claude mcp list
+# Should show: tmux-progress    user    python3 ...
+```
 
 ## Quick Start
 
@@ -19,25 +37,14 @@ cd /mnt/c/Development/Builder-CLI/tmux-builder
 **Expected Output:**
 ```
 ============================================================
-STARTING TMUX BUILDER BACKEND
-============================================================
-
-Checking dependencies...
-✓ All imports working
-
-Starting backend server...
-Press Ctrl+C to stop
-
-============================================================
 TMUX BUILDER BACKEND SERVER
 ============================================================
 Starting API on 0.0.0.0:8000
+Starting MCP WebSocket server on port 8001
 Frontend CORS: http://localhost:5173
-Default User: default_user
 ============================================================
 
 INFO:     Started server process [xxxxx]
-INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ```
@@ -51,141 +58,161 @@ cd /mnt/c/Development/Builder-CLI/tmux-builder
 
 **Expected Output:**
 ```
-============================================================
-STARTING TMUX BUILDER FRONTEND
-============================================================
-
-Checking node_modules...
-
-Starting frontend dev server...
-Press Ctrl+C to stop
-
   VITE v5.0.8  ready in 350 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
-  ➜  press h + enter to show help
 ```
 
 ### Browser
 
 1. Open: **http://localhost:5173**
 2. Click **"Create Session"** button
-3. Wait 10-20 seconds for initialization
+3. Wait for MCP health check (ack) to complete
 4. Type a message in the input box
-5. Press Enter or click Send
+5. Watch the MCP Tools Log panel (right side) for real-time progress
+6. See response appear in chat panel (left side)
 
-## What You'll See in Logs
+## What You'll See
+
+### UI Split View
+
+```
+┌─────────────────────────────┬─────────────────────────────┐
+│      Chat Panel             │    MCP Tools Log Panel      │
+│      (Channel 1)            │    (Channel 2)              │
+│                             │                             │
+│  User: Hello Claude!        │  [12:01:00] notify_ack      │
+│                             │    guid: abc123             │
+│  Claude: Hello! How can     │                             │
+│  I help you today?          │  [12:01:02] send_progress   │
+│                             │    guid: abc123, percent: 50│
+│                             │                             │
+│                             │  [12:01:05] send_response   │
+│                             │    guid: abc123             │
+│                             │    content: Hello! How...   │
+│                             │                             │
+│                             │  [12:01:05] notify_complete │
+│                             │    guid: abc123, success:true│
+└─────────────────────────────┴─────────────────────────────┘
+```
 
 ### Backend Logs (Terminal 1)
 
 When you click "Create Session":
 ```
-2026-01-24 12:00:00 - __main__ - INFO - === CREATE SESSION REQUEST ===
-2026-01-24 12:00:00 - __main__ - INFO - User: default_user
-2026-01-24 12:00:00 - __main__ - INFO - Creating SessionController...
-2026-01-24 12:00:00 - session_controller - INFO - Initializing SessionController for user: default_user
-2026-01-24 12:00:00 - session_controller - INFO - Session path: /path/to/sessions/default_user
-2026-01-24 12:00:00 - session_controller - INFO - Session name: tmux_builder_default_user_1737712800
-2026-01-24 12:00:00 - session_controller - INFO - === INITIALIZING SESSION ===
-2026-01-24 12:00:00 - session_controller - INFO - Creating tmux session: tmux_builder_default_user_1737712800
-2026-01-24 12:00:03 - session_controller - INFO - ✓ Tmux session created
-2026-01-24 12:00:03 - session_controller - INFO - ✓ Instructions sent
-2026-01-24 12:00:03 - session_controller - INFO - Waiting for initialized marker (timeout: 60s)...
-2026-01-24 12:00:15 - session_controller - INFO - ✓ Session initialized successfully
-2026-01-24 12:00:15 - __main__ - INFO - ✓ Session created successfully: tmux_builder_default_user_1737712800
+INFO - === CREATE SESSION REQUEST ===
+INFO - Creating tmux session: tmux_builder_abc123
+INFO - Registering session with MCP server...
+INFO - Sending health check instruction...
+INFO - Waiting for MCP ack (timeout: 30s)...
+INFO - MCP ack received - Claude CLI is alive and ready
+INFO - Session initialization complete
 ```
 
 When you send a message:
 ```
-2026-01-24 12:01:00 - __main__ - INFO - === CHAT MESSAGE ===
-2026-01-24 12:01:00 - __main__ - INFO - Message: Hello Claude!...
-2026-01-24 12:01:00 - session_controller - INFO - === SENDING MESSAGE ===
-2026-01-24 12:01:00 - session_controller - INFO - Appending user message to history...
-2026-01-24 12:01:00 - session_controller - INFO - Sending message to tmux session: tmux_builder_default_user_1737712800
-2026-01-24 12:01:00 - session_controller - INFO - ✓ Message sent to Claude
-2026-01-24 12:01:00 - session_controller - INFO - Waiting for completion marker (timeout: 60s)...
-2026-01-24 12:01:05 - session_controller - INFO - ✓ Completion marker received
-2026-01-24 12:01:05 - session_controller - INFO - Response received: Hello! How can I help you today?...
-2026-01-24 12:01:05 - __main__ - INFO - ✓ Response sent successfully
+INFO - === SEND MESSAGE REQUEST ===
+INFO - Writing prompt to /path/to/sessions/abc123/prompt.txt
+INFO - Sending instruction to Claude CLI...
+INFO - Waiting for MCP response (timeout: 300s)...
+INFO - MCP response received
+INFO - Response: Hello! How can I help you today?
 ```
 
-### Frontend Logs (Browser Console - F12)
+### Frontend Console (Browser F12)
 
-The frontend will show status checks and API calls:
 ```
-Checking status...
-Creating session...
-Session created: tmux_builder_default_user_1737712800
-Sending message: Hello Claude!
-Received response
+[MCP-WS] Connecting to ws://localhost:8001/ws/abc123...
+[MCP-WS] Connected to MCP progress server
+[MCP-WS] Received: ack {guid: "abc123", timestamp: "..."}
+[MCP-WS] Received: progress {guid: "abc123", percent: 50, ...}
+[MCP-WS] Received: response {guid: "abc123", content: "Hello!...", ...}
+[MCP-WS] Received: complete {guid: "abc123", success: true, ...}
 ```
+
+## Test Scenarios
+
+### 1. Session Creation Test
+
+1. Open browser to http://localhost:5173
+2. Click "Create Session"
+3. Verify:
+   - Backend logs show MCP ack received
+   - UI shows session ready status
+   - MCP Tools Log shows connection established
+
+### 2. Message Send/Receive Test
+
+1. Type message: "Hello Claude!"
+2. Press Enter
+3. Verify:
+   - User message appears in chat panel
+   - MCP Tools Log shows `notify_ack`
+   - Progress updates appear (if Claude reports them)
+   - Response appears in chat panel
+   - `notify_complete` appears in MCP log
+
+### 3. MCP WebSocket Connection Test
+
+1. Open browser console (F12)
+2. Watch for `[MCP-WS]` log messages
+3. Verify:
+   - Connection to port 8001 succeeds
+   - Messages received in real-time
+
+### 4. Bridge Mode Test
+
+1. Attach to tmux session: `tmux attach -t tmux_builder_*`
+2. In Claude CLI, press `/` to open menu
+3. Select "mcp"
+4. Verify:
+   - `tmux-progress` shows "connected"
+   - Tools are listed (notify_ack, send_progress, etc.)
 
 ## Troubleshooting
 
-### Backend Won't Start
+### MCP Tools Not Available
 
-**Error: `ModuleNotFoundError: No module named 'fastapi'`**
+**Symptoms:** Claude shows `tmux-progress` connected but "Capabilities: none"
 
-Solution:
+**Solution:**
 ```bash
-cd backend
-pip3 install --user fastapi==0.104.1 uvicorn[standard]==0.24.0 pydantic==2.5.0 python-multipart==0.0.6
+# Re-register with user scope
+claude mcp remove tmux-progress
+claude mcp add --scope user tmux-progress -- python3 /path/to/backend/mcp_server/server.py
 ```
 
-**Error: `Address already in use` (Port 8000)**
+### Session Creation Times Out
 
-Solution:
-```bash
-# Kill existing process
-pkill -f "python3 main.py"
-# Or use different port
-export API_PORT=8001
-./start-backend.sh
-```
+**Symptoms:** "Timeout waiting for MCP ack"
 
-### Frontend Won't Start
+**Check:**
+1. MCP server registered at user scope: `claude mcp list`
+2. Backend running on port 8000: `curl http://localhost:8000/`
+3. Attach to tmux session: `tmux attach -t tmux_builder_*`
 
-**Error: `ENOENT: no such file or directory`**
+### WebSocket Connection Fails
 
-Solution:
-```bash
-cd frontend
-npm install
-```
+**Symptoms:** UI shows disconnected status, browser console shows WebSocket errors
 
-**Error: `Port 5173 already in use`**
+**Check:**
+1. MCP WebSocket server running on port 8001
+2. Backend logs show "Starting MCP WebSocket server"
+3. No firewall blocking port 8001
 
-Solution:
-```bash
-# Kill existing process
-pkill -f "vite"
-# Or Vite will auto-increment to 5174
-```
+### Tool Calls Not Reaching UI
 
-### UI Connection Errors
+**Symptoms:** Claude works but UI doesn't show progress
 
-**Error: `ERR_CONNECTION_REFUSED` or `ERR_CONNECTION_RESET`**
-
-Check:
-1. Is backend running? (Should see "Uvicorn running on http://0.0.0.0:8000")
-2. Is backend accessible? `curl http://localhost:8000/`
-3. Check backend logs for errors
-
-**Error: `Failed to create session`**
-
-Check backend logs for:
-- tmux not installed: `sudo apt-get install tmux`
-- Claude CLI not found: Install from https://claude.ai/download
-- Permission issues: Check session directory permissions
-
-**Error: `Timeout waiting for response`**
-
-Check:
-1. Is tmux session alive? `tmux list-sessions`
-2. Attach to session to see Claude: `tmux attach -t tmux_builder_*`
-3. Check if Claude CLI is responding
-4. Increase timeout in `backend/config.py` if needed
+**Check:**
+1. Browser connected to WebSocket (check console)
+2. `/api/mcp/tool-call` endpoint accessible:
+   ```bash
+   curl -X POST http://localhost:8000/api/mcp/tool-call \
+     -H "Content-Type: application/json" \
+     -d '{"tool": "notify_ack", "arguments": {"guid": "test"}}'
+   ```
 
 ## Debugging Commands
 
@@ -194,38 +221,52 @@ Check:
 # Is backend running?
 ps aux | grep "python3 main.py"
 
-# Test backend directly
+# Test backend
 curl http://localhost:8000/
-curl http://localhost:8000/api/status
+
+# Test MCP tool call endpoint
+curl -X POST http://localhost:8000/api/mcp/tool-call \
+  -H "Content-Type: application/json" \
+  -d '{"tool": "notify_ack", "arguments": {"guid": "test-guid"}}'
 ```
 
 ### Check TMUX Sessions
 ```bash
-# List all tmux sessions
+# List sessions
 tmux list-sessions
 
-# Attach to Claude session (watch in real-time)
-tmux attach -t tmux_builder_default_user_*
+# Attach to Claude session
+tmux attach -t tmux_builder_*
 
-# Detach: Press Ctrl+B then D
+# Detach: Ctrl+B then D
 
 # Capture pane output
-tmux capture-pane -t tmux_builder_default_user_* -p | tail -50
+tmux capture-pane -t tmux_builder_* -p | tail -50
 ```
 
-### Check Session Files
+### Check MCP Registration
 ```bash
-# View session directory
-ls -la sessions/default_user/
+# List MCP servers
+claude mcp list
 
-# View chat history
-cat sessions/default_user/chat_history.jsonl
-
-# Check markers
-ls -la sessions/default_user/markers/
+# Should show:
+# Name            Scope    Command
+# tmux-progress   user     python3 /path/to/backend/mcp_server/server.py
 ```
 
-### Clean Up Everything
+### Check Ports
+```bash
+# Backend port
+lsof -i :8000
+
+# MCP WebSocket port
+lsof -i :8001
+
+# Frontend port
+lsof -i :5173
+```
+
+### Clean Up
 ```bash
 # Stop backend
 pkill -f "python3 main.py"
@@ -233,49 +274,70 @@ pkill -f "python3 main.py"
 # Stop frontend
 pkill -f "vite"
 
-# Kill all tmux sessions
+# Kill tmux sessions
 tmux kill-server
 
 # Clean session data
-rm -rf sessions/default_user/
+rm -rf ~/tmux-builder/sessions/active/*
 ```
-
-## Test Sequence
-
-1. **Start Backend** - Watch for "Uvicorn running" message
-2. **Start Frontend** - Watch for "Local: http://localhost:5173"
-3. **Open Browser** - Navigate to http://localhost:5173
-4. **Create Session** - Click button, watch backend logs for initialization
-5. **Send Message** - Type "Hello Claude!" and press Enter
-6. **Watch Logs** - See message flow through backend
-7. **Get Response** - See Claude's response appear in UI
 
 ## Success Indicators
 
-✅ Backend shows: `INFO:     Uvicorn running on http://0.0.0.0:8000`
-✅ Frontend shows: `➜  Local:   http://localhost:5173/`
-✅ Browser loads UI without errors
-✅ "Create Session" succeeds (button changes to "Clear Chat")
-✅ Backend logs show "✓ Session initialized successfully"
-✅ Messages send and receive responses
-✅ Backend logs show "✓ Response sent successfully"
+- Backend shows: `INFO: Uvicorn running on http://0.0.0.0:8000`
+- Backend shows: `Starting MCP WebSocket server on port 8001`
+- Frontend shows: `Local: http://localhost:5173/`
+- Browser loads split-view UI
+- MCP connection status shows green/connected
+- "Create Session" completes successfully
+- MCP Tools Log shows tool calls in real-time
+- Messages send and receive responses
 
-## Common Issues and Solutions
+## Common Issues
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| Backend import errors | Missing dependencies | Run `pip3 install --user -r backend/requirements.txt` |
-| Port already in use | Previous instance running | Kill process: `pkill -f "python3 main.py"` |
-| CORS errors | Wrong frontend URL | Check backend CORS settings match frontend port |
-| Session creation fails | tmux/Claude CLI missing | Install dependencies |
-| Timeout waiting | Claude CLI slow/stuck | Increase timeout or restart |
-| No response | Marker files not created | Check Claude CLI is responding |
+| MCP tools unavailable | Wrong scope | Re-register with `--scope user` |
+| Session timeout | MCP bridge not working | Check backend port 8000 |
+| No progress updates | WebSocket disconnect | Check port 8001 |
+| CORS errors | Wrong frontend URL | Check backend CORS settings |
+| Port already in use | Previous instance | Kill process |
 
-## Next Steps
+## Architecture Verification
 
-Once everything works:
-- Test file uploads (if implemented)
-- Test session persistence
-- Test error handling (invalid inputs)
-- Monitor performance (response times)
-- Check memory usage during long conversations
+### Verify Bridge Mode
+
+When Claude CLI spawns the MCP server, it runs in bridge mode. Verify by:
+
+1. Start a session
+2. Check backend logs for: `Tool call forwarded: notify_ack(...)`
+3. This confirms MCP server is forwarding to FastAPI
+
+### Verify Dual Channels
+
+1. Channel 1 (Port 8000): Chat API
+   - Test: `curl http://localhost:8000/api/status`
+
+2. Channel 2 (Port 8001): MCP WebSocket
+   - Test: Check browser console for WebSocket connection
+
+### Verify End-to-End Flow
+
+```
+1. User sends message (UI)
+      ↓
+2. HTTP POST to /api/chat (Port 8000)
+      ↓
+3. Backend writes prompt.txt, sends tmux instruction
+      ↓
+4. Claude CLI reads prompt, calls MCP tools
+      ↓
+5. MCP Bridge forwards to /api/mcp/tool-call (Port 8000)
+      ↓
+6. Backend updates registry, broadcasts via WebSocket (Port 8001)
+      ↓
+7. UI receives progress on Channel 2
+      ↓
+8. Backend returns final response on Channel 1
+      ↓
+9. UI displays response
+```

@@ -15,7 +15,8 @@ from config import (
     CLI_COMMAND,
     TMUX_SEND_COMMAND_DELAY,
     TMUX_SEND_ENTER_DELAY,
-    TMUX_CLAUDE_INIT_DELAY
+    TMUX_CLAUDE_INIT_DELAY,
+    PROJECT_ROOT
 )
 
 logger = logging.getLogger(__name__)
@@ -42,13 +43,16 @@ class TmuxHelper:
         """
         Create a new tmux session and start Claude CLI.
 
-        Follows SmartBuild pattern exactly:
+        IMPORTANT: Claude CLI is started FROM THE SESSION FOLDER so that:
+        - ./notify.sh works with relative path
+        - Claude has full control of its workspace
+        - All file operations are relative to session folder
+
+        Follows pattern:
         1. Create session
-        2. CD to working directory
+        2. CD to session folder (working_dir)
         3. Start Claude with proper flags
         4. Wait for initialization
-        5. Send bypass Enter keys
-        6. Verify with probe command
         """
         try:
             # Kill existing session if it exists
@@ -64,7 +68,9 @@ class TmuxHelper:
                 check=True
             )
 
-            # Step 2: CD to working directory
+            # Step 2: CD to SESSION FOLDER (not PROJECT_ROOT)
+            # This gives Claude full control of its workspace
+            logger.info(f"Changing to session folder: {working_dir}")
             TmuxHelper._send_literal_command(
                 session_name,
                 f"cd {working_dir}",
@@ -80,7 +86,7 @@ class TmuxHelper:
             )
 
             # Step 4: Wait for Claude CLI to fully initialize
-            # No probe needed - marker-based handshake will verify readiness
+            # notify.sh-based handshake will verify readiness
             logger.info("Waiting for Claude CLI to initialize...")
             time.sleep(2.0)
 

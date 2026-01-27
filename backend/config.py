@@ -107,18 +107,15 @@ MAX_CONCURRENT_JOBS = 4
 SESSION_PREFIX = TMUX_SESSION_PREFIX
 
 # ==============================================
-# MCP SERVER CONFIGURATION
+# PROGRESS WEBSOCKET CONFIGURATION
 # ==============================================
 
-# MCP server name (registered with Claude CLI)
-MCP_SERVER_NAME = 'tmux-progress'
+# Progress WebSocket port (for real-time updates to UI)
+PROGRESS_WS_PORT = int(os.getenv('PROGRESS_WS_PORT', '8001'))
 
-# MCP WebSocket port (for UI connections)
-MCP_WS_PORT = int(os.getenv('MCP_WS_PORT', '8001'))
-
-# MCP protocol timeouts
-MCP_ACK_TIMEOUT = 30  # seconds to wait for ack
-MCP_RESPONSE_TIMEOUT = 300  # seconds to wait for response
+# Protocol timeouts
+ACK_TIMEOUT = 30  # seconds to wait for ack from Claude
+RESPONSE_TIMEOUT = 300  # seconds to wait for response
 
 # ==============================================
 # CHAT SESSION FILES
@@ -173,6 +170,57 @@ CORS_ORIGINS = [
 
 # Logging level
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+
+# ==============================================
+# WEBSOCKET CONSTANTS
+# ==============================================
+
+# Maximum message history per session
+WS_MAX_MESSAGE_HISTORY = 50
+
+# ==============================================
+# LOGGING CONFIGURATION
+# ==============================================
+
+LOG_DIR = SESSIONS_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "tmux-builder.log"
+
+def setup_logging():
+    """Configure centralized logging to both console and file."""
+    import logging
+    from logging.handlers import RotatingFileHandler
+
+    # Create formatter
+    formatter = logging.Formatter(
+        '[%(asctime)s] [%(name)s] %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    # Root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(getattr(logging, LOG_LEVEL))
+
+    # Clear existing handlers
+    root_logger.handlers = []
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(getattr(logging, LOG_LEVEL))
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+
+    # File handler (rotating, max 10MB, keep 5 backups)
+    file_handler = RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=10*1024*1024,
+        backupCount=5
+    )
+    file_handler.setLevel(getattr(logging, LOG_LEVEL))
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+
+    logging.info(f"Logging initialized - Console + File: {LOG_FILE}")
 
 # ==============================================
 # HELPER FUNCTIONS

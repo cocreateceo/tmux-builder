@@ -7,7 +7,6 @@ import McpToolsLog from './McpToolsLog';
 
 function SplitChatView() {
   const [messages, setMessages] = useState([]);
-  const [mcpLogs, setMcpLogs] = useState([]);
   const [sessionReady, setSessionReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -22,38 +21,55 @@ function SplitChatView() {
 
   // Channel 2: MCP WebSocket (progress/tools log)
   const mcpHandlers = useMemo(() => ({
-    onToolLog: (data) => {
-      setMcpLogs(prev => [...prev, {
-        tool: data.tool,
-        args: data.args,
-        timestamp: data.timestamp
-      }]);
+    // Generic message handler - called for ALL messages
+    onMessage: (data) => {
+      console.log('[SplitChatView] Message received:', data.type, data.message);
     },
-    onAck: () => setLoading(true),
-    onComplete: () => setLoading(false),
-    onResponse: (data) => {
-      if (data.content) {
+    onAck: () => {
+      setLoading(true);
+    },
+    onComplete: () => {
+      setLoading(false);
+    },
+    onDeployed: (data) => {
+      // Add deployed URL as assistant message
+      if (data.message) {
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: data.content,
+          content: `🚀 Deployed: ${data.message}`,
+          timestamp: data.timestamp
+        }]);
+      }
+    },
+    onResponse: (data) => {
+      if (data.message || data.content) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: data.message || data.content,
           timestamp: data.timestamp
         }]);
       }
       setLoading(false);
     },
     onError: (data) => {
-      setError(data.error || data.message || 'An error occurred');
+      setError(data.message || 'An error occurred');
       setLoading(false);
     }
   }), []);
 
-  const { connected: mcpConnected } = useProgressSocket(guid, mcpHandlers);
+  const {
+    connected: mcpConnected,
+    progress,
+    statusMessage,
+    activityLog,
+    clearActivityLog
+  } = useProgressSocket(guid, mcpHandlers);
 
   // Create session
   const handleCreateSession = async () => {
     setLoading(true);
     setError(null);
-    setMcpLogs([]);
+    clearActivityLog();
 
     try {
       const result = await apiService.createSession();
@@ -72,7 +88,7 @@ function SplitChatView() {
   // Send message
   const handleSendMessage = useCallback(async (messageData) => {
     const { message } = messageData;
-    setMcpLogs([]); // Clear logs for new message
+    clearActivityLog(); // Clear logs for new message
     setMessages(prev => [...prev, { role: 'user', content: message, timestamp: new Date().toISOString() }]);
     setLoading(true);
     setError(null);
@@ -91,15 +107,15 @@ function SplitChatView() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearActivityLog]);
 
   // Clear chat
   const handleClearChat = async () => {
-    if (!window.confirm('Clear chat and MCP logs?')) return;
+    if (!window.confirm('Clear chat and activity log?')) return;
     try {
       await apiService.clearSession();
       setMessages([]);
-      setMcpLogs([]);
+      clearActivityLog();
       setSessionReady(false);
       setGuid(null);
       localStorage.removeItem('tmux_builder_guid');
@@ -114,7 +130,7 @@ function SplitChatView() {
       <div className="h-screen flex items-center justify-center bg-gray-100">
         <div className="bg-white rounded-lg shadow-lg p-8 text-center max-w-md">
           <h2 className="text-2xl font-bold mb-4">Tmux Builder</h2>
-          <p className="text-gray-600 mb-6">Dual-channel chat with MCP progress tracking</p>
+          <p className="text-gray-600 mb-6">Dual-channel chat with real-time activity log</p>
           {error && <div className="bg-red-100 text-red-700 p-3 rounded mb-4">{error}</div>}
           <button
             onClick={handleCreateSession}
@@ -139,6 +155,11 @@ function SplitChatView() {
             <span className={`w-2 h-2 rounded-full ${mcpConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
             <span className="text-gray-400">MCP</span>
           </div>
+          {statusMessage && (
+            <span className="text-sm text-gray-400 truncate max-w-xs">
+              {statusMessage}
+            </span>
+          )}
         </div>
         <button onClick={handleClearChat} className="text-sm text-red-400 hover:text-red-300">
           Clear Session
@@ -165,9 +186,9 @@ function SplitChatView() {
           </div>
         </div>
 
-        {/* Right: MCP Tools Log */}
+        {/* Right: Activity Log */}
         <div className="w-1/2">
-          <McpToolsLog logs={mcpLogs} connected={mcpConnected} />
+          <McpToolsLog logs={activityLog} connected={mcpConnected} progress={progress} />
         </div>
       </div>
     </div>

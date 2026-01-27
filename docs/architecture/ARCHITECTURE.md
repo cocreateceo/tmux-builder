@@ -1,10 +1,17 @@
 # Tmux Builder Architecture
 
-Dual-channel WebSocket architecture with MCP-based progress communication.
+Dual-channel WebSocket architecture with bash-based progress communication for Claude CLI integration.
 
 ## System Overview
 
-Tmux Builder enables web UI interaction with Claude AI through isolated tmux sessions. The architecture uses **MCP (Model Context Protocol)** for real-time progress updates from Claude CLI to the browser.
+Tmux Builder enables web UI interaction with Claude AI through isolated tmux sessions. The architecture uses **notify.sh** (a bash script) for real-time progress updates from Claude CLI to the browser.
+
+### Key Architectural Components
+
+1. **FastAPI Backend (Port 8000)**: Session management, chat messaging, main WebSocket for UI
+2. **Progress WebSocket Server (Port 8001)**: Real-time progress broadcasts from Claude CLI to UI
+3. **notify.sh Script**: Per-session bash script Claude uses to send progress updates
+4. **Claude CLI in tmux**: Isolated session executing user tasks
 
 ## Architecture Diagram
 
@@ -13,51 +20,51 @@ Tmux Builder enables web UI interaction with Claude AI through isolated tmux ses
 │                           BROWSER (React UI)                                     │
 │                                                                                  │
 │  ┌────────────────────────────────────┬────────────────────────────────────────┐│
-│  │      LEFT: Chat Panel              │      RIGHT: MCP Tools Log Panel        ││
+│  │      LEFT: Chat Panel              │      RIGHT: Activity Log Panel         ││
 │  │      (Channel 1)                   │      (Channel 2)                       ││
 │  │                                    │                                        ││
-│  │  User messages                     │  Real-time tool call log:              ││
-│  │  Claude responses                  │  • notify_ack(guid)                    ││
-│  │                                    │  • send_progress(guid, 50%)            ││
-│  │                                    │  • send_status(guid, "Working...")     ││
-│  │                                    │  • send_response(guid, content)        ││
-│  │                                    │  • notify_complete(guid)               ││
+│  │  User messages                     │  [11:34:02] ACK - Ready to work        ││
+│  │  Claude responses                  │  [11:34:05] STATUS - Analyzing code    ││
+│  │                                    │  [11:34:12] WORKING - Refactoring auth ││
+│  │                                    │  [11:34:30] DONE - Task completed      ││
 │  └────────────┬───────────────────────┴──────────────────┬─────────────────────┘│
 │               │                                          │                      │
-│               │ HTTP + WebSocket                         │ WebSocket            │
+│               │ WebSocket                                │ WebSocket            │
 │               │ Port 8000                                │ Port 8001            │
 └───────────────┼──────────────────────────────────────────┼──────────────────────┘
                 │                                          │
                 ▼                                          ▼
 ┌───────────────────────────────────┐    ┌────────────────────────────────────────┐
-│      FastAPI Backend              │    │      MCP Server (Python)               │
-│      Port 8000                    │    │      Port 8001 (WebSocket)             │
+│      FastAPI Backend              │    │      Progress WebSocket Server         │
+│      Port 8000                    │    │      Port 8001                         │
 │                                   │    │                                        │
-│  • Session lifecycle              │    │  • Spawned by Claude CLI as subprocess │
-│  • Tmux management                │    │  • stdio ↔ Claude CLI (MCP protocol)   │
-│  • Write prompt.txt               │    │  • WebSocket ↔ UI (progress broadcast) │
-│  • Send instruction via tmux      │    │  • Logs all tool calls                 │
-│  • Wait for MCP signals           │    │                                        │
-│                                   │    │  Available Tools:                      │
-└─────────────┬─────────────────────┘    │  • notify_ack(guid)                    │
-              │                          │  • send_progress(guid, percent)        │
-              │ tmux send-keys           │  • send_status(guid, message, phase)   │
-              ▼                          │  • send_response(guid, content)        │
-┌─────────────────────────────────────────┤  • notify_complete(guid, success)      │
-│              TMUX SESSION              │  • notify_error(guid, error)          │
-│                                        └──────────────────┬─────────────────────┘
-│    ┌──────────────────────────────────────────────────────┼───────────────────┐     │
-│    │                     CLAUDE CLI                       │               │     │
-│    │                                                      │ stdio (MCP)   │     │
-│    │    Registered MCP server: tmux-progress              ▼               │     │
-│    │    (auto-spawns mcp_server/server.py)                                │     │
-│    │                                                                      │     │
-│    │    On instruction, Claude:                                           │     │
-│    │    1. Calls notify_ack(guid)                                         │     │
-│    │    2. Calls send_progress/send_status as it works                    │     │
-│    │    3. Calls send_response(guid, content) with result                 │     │
-│    │    4. Calls notify_complete(guid)                                    │     │
-│    └──────────────────────────────────────────────────────────────────────┘     │
+│  • Session lifecycle              │    │  • Path-based routing: /ws/<guid>      │
+│  • Tmux management                │    │  • Receives messages from notify.sh    │
+│  • Generate notify.sh             │    │  • Broadcasts to subscribed UI clients │
+│  • Send instructions via tmux     │    │  • Message history per session         │
+│  • Chat WebSocket endpoint        │    │                                        │
+└─────────────┬─────────────────────┘    └────────────────────────────────────────┘
+              │                                          ▲
+              │ tmux send-keys                           │ WebSocket (from notify.sh)
+              ▼                                          │
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│              TMUX SESSION                                                        │
+│                                                                                  │
+│    ┌──────────────────────────────────────────────────────────────────────────┐ │
+│    │                     CLAUDE CLI                                           │ │
+│    │                                                                          │ │
+│    │    Working directory: sessions/<guid>/                                   │ │
+│    │                                                                          │ │
+│    │    Progress updates via notify.sh:                                       │ │
+│    │    ───────────────────────────────────────────                          │ │
+│    │    │ ./notify.sh ack                    → WebSocket → UI               │ │
+│    │    │ ./notify.sh status "Analyzing..."  → WebSocket → UI               │ │
+│    │    │ ./notify.sh working "Refactoring"  → WebSocket → UI               │ │
+│    │    │ ./notify.sh done                   → WebSocket → UI               │ │
+│    │    └───────────────────────────────────────────                          │ │
+│    │                                                                          │ │
+│    └──────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -66,64 +73,236 @@ Tmux Builder enables web UI interaction with Claude AI through isolated tmux ses
 ### Channel 1: Chat (Port 8000)
 - **Transport**: HTTP REST + WebSocket
 - **Purpose**: Session management, message sending, response delivery
-- **Flow**: UI → FastAPI Backend → tmux → Claude CLI
+- **Flow**: UI ↔ FastAPI Backend ↔ tmux ↔ Claude CLI
 
 ### Channel 2: Progress (Port 8001)
 - **Transport**: WebSocket
-- **Purpose**: Real-time progress updates, tool call logging
-- **Flow**: Claude CLI → MCP Server → WebSocket → UI
+- **Purpose**: Real-time progress updates, activity logging
+- **Flow**: Claude CLI → notify.sh → WebSocket Server → UI
 
-## MCP Server Registration
+## notify.sh Script
 
-The MCP server must be registered with Claude CLI before use:
+Each session gets a dedicated `notify.sh` script with the session GUID baked in.
 
+**Location:** `sessions/<guid>/notify.sh`
+
+**Usage:**
 ```bash
-# Run setup script
-./scripts/setup-mcp.sh
+./notify.sh <type> [data]
 
-# Or manually:
-claude mcp add tmux-progress -- python3 /path/to/backend/mcp_server/server.py
+# Examples:
+./notify.sh ack                          # Acknowledge task received
+./notify.sh status "Analyzing code..."   # Send status message
+./notify.sh working "Refactoring auth"   # What currently working on
+./notify.sh progress 50                  # Progress percentage (0-100)
+./notify.sh found "3 bugs in login.py"   # Report findings
+./notify.sh done                         # Task completed
+./notify.sh error "Config not found"     # Report error
 ```
+
+**How it works:**
+1. Backend creates `notify.sh` from template during session initialization
+2. Template has `{{GUID}}` placeholder replaced with actual session GUID
+3. Script uses Python websockets to send JSON messages to `ws://localhost:8001/ws/<guid>`
+4. WebSocket server broadcasts to all UI clients subscribed to that GUID
 
 ## Message Flow
 
-1. User types message in UI (left panel)
-2. UI sends via HTTP POST to backend
-3. Backend writes prompt.txt, sends tmux instruction with MCP tool guidance
-4. Claude CLI processes and calls MCP tools:
-   - `notify_ack(guid)` → Broadcast to UI
-   - `send_progress(percent)` → Broadcast to UI
-   - `send_response(content)` → Broadcast to UI
-   - `notify_complete(success)` → Broadcast to UI
-5. Backend detects completion via MCP server registry
-6. Backend returns response via HTTP
+### Session Initialization
+
+```
+1. User clicks "Create Session"
+2. Backend creates session folder with subfolders (tmp/, code/, infrastructure/, docs/)
+3. Backend generates notify.sh with GUID baked in
+4. Backend generates system_prompt.txt with autonomous agent instructions
+5. Backend clears any stale prompt.txt (prevents auto-execution of old tasks)
+6. Backend creates tmux session, starts Claude CLI FROM session folder
+7. Backend sends health check: 'Read system_prompt.txt and run: ./notify.sh ack - then WAIT'
+8. Claude reads system_prompt.txt, runs ./notify.sh ack
+9. notify.sh sends WebSocket message to port 8001
+10. Backend detects ack, marks session ready
+11. UI receives ack on Channel 2, shows connected status
+12. Claude is now WAITING for explicit task instruction (won't read prompt.txt proactively)
+```
+
+### Message Processing
+
+```
+1. User sends message via Channel 1 (WebSocket to backend)
+2. Backend writes prompt.txt to session directory
+3. Backend sends tmux instruction with notify.sh guidance
+4. Claude reads prompt.txt, processes request
+5. Claude sends progress updates as it works:
+   - ./notify.sh ack → WebSocket Server → UI
+   - ./notify.sh status "Analyzing..." → WebSocket Server → UI
+   - ./notify.sh working "Implementing feature" → WebSocket Server → UI
+   - ./notify.sh done → WebSocket Server → UI
+6. Backend detects completion
+7. Backend returns final response via Channel 1
+8. UI displays response and activity timeline
+```
 
 ## Component Responsibilities
 
 | Component | Responsibility |
 |-----------|---------------|
-| React UI | Split-view chat + MCP log display |
-| FastAPI Backend | Session lifecycle, tmux management |
-| MCP Server | stdio ↔ Claude CLI, WebSocket broadcasts |
+| React UI | Split-view chat + activity log display, dual WebSocket connections |
+| FastAPI Backend | Session lifecycle, tmux management, notify.sh generation |
+| Progress WebSocket Server | Real-time broadcasts to UI (port 8001) |
+| notify.sh | Bash script to send WebSocket messages from Claude CLI |
 | TmuxHelper | Low-level tmux command execution |
-| SessionController | Message orchestration with MCP protocol |
-| SessionInitializer | Session creation with MCP health check |
+| SessionController | Message orchestration |
+| SessionInitializer | Session creation with notify.sh generation |
+
+## Message Types
+
+Claude can use any type with notify.sh - these are common conventions:
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| `ack` | Acknowledge task received | `./notify.sh ack` |
+| `status` | General status update | `./notify.sh status "Reading files"` |
+| `working` | What currently working on | `./notify.sh working "auth module"` |
+| `progress` | Percentage complete | `./notify.sh progress 50` |
+| `found` | Report findings | `./notify.sh found "3 issues"` |
+| `done` | Task completed | `./notify.sh done` |
+| `error` | Report error | `./notify.sh error "File not found"` |
+
+## UI Display Format
+
+Activity log shows timestamped entries:
+```
+[11:34:02] ACK - Ready to work
+[11:34:05] STATUS - Reading the codebase
+[11:34:12] WORKING - Refactoring authentication module
+[11:34:20] FOUND - 3 issues in login.py
+[11:34:30] DONE - Task completed
+```
 
 ## Configuration
 
 Key configuration in `backend/config.py`:
 
 ```python
-MCP_SERVER_NAME = 'tmux-progress'
-MCP_WS_PORT = 8001
-MCP_ACK_TIMEOUT = 30  # seconds
-MCP_RESPONSE_TIMEOUT = 300  # seconds
+# WebSocket ports
+API_PORT = 8000           # Main backend + chat WebSocket
+PROGRESS_WS_PORT = 8001   # Progress updates WebSocket
+
+# Session settings
+TMUX_SESSION_PREFIX = 'tmux_builder'
+ACTIVE_SESSIONS_DIR = Path('./sessions')
+
+# Timeouts
+HEALTH_CHECK_TIMEOUT = 30  # seconds to wait for ack
+```
+
+## Session Folder Structure
+
+When a session is created, the following structure is generated:
+
+```
+sessions/<guid>/
+├── system_prompt.txt   # Comprehensive autonomous agent instructions (read once)
+├── notify.sh           # Progress communication script (GUID baked in)
+├── prompt.txt          # User task (written when user sends message)
+├── status.json         # Session state tracking
+├── chat_history.jsonl  # Chat history
+├── tmp/                # Scratch work, test files, temporary data
+├── code/               # Generated application code
+├── infrastructure/     # IaC files (Terraform, CloudFormation)
+└── docs/               # Documentation, deployment summaries
+```
+
+### system_prompt.txt
+
+Generated by `system_prompt_generator.py` during session initialization. Contains:
+- Session GUID and path information
+- Operating environment details
+- **CRITICAL: Task reception protocol** - instructs Claude to WAIT for explicit task instructions
+- Communication protocol using notify.sh
+- File organization guidelines
+- Skills and agents paths (absolute paths to `.claude/skills/` and `.claude/agents/`)
+- Deployment requirements and checklists
+- Quality standards
+
+**Key behavior:** Claude reads system_prompt.txt once at init, acknowledges with `./notify.sh ack`, then **STOPS and WAITS** for the backend to send an explicit task instruction. This prevents Claude from auto-executing stale tasks.
+
+## File Structure
+
+```
+backend/
+├── main.py                    # FastAPI backend + chat WebSocket
+├── ws_server.py               # Progress WebSocket server (port 8001)
+├── config.py                  # Configuration (ports, timeouts, paths)
+├── tmux_helper.py             # TMUX operations (launches Claude from session folder)
+├── session_controller.py      # Message orchestration
+├── session_initializer.py     # Session creation + folder structure + file generation
+├── system_prompt_generator.py # Generate system_prompt.txt for autonomous operation
+├── notify_generator.py        # Generate notify.sh from template
+└── scripts/
+    └── notify_template.sh     # Template with {{GUID}} placeholder
+
+sessions/
+└── <guid>/
+    ├── system_prompt.txt      # Autonomous agent instructions (generated)
+    ├── notify.sh              # Progress script (generated, GUID baked in)
+    ├── prompt.txt             # User's message (created when user sends message)
+    ├── status.json            # Session state
+    ├── chat_history.jsonl     # Conversation history
+    ├── tmp/                   # Scratch work
+    ├── code/                  # Application code
+    ├── infrastructure/        # IaC files
+    └── docs/                  # Documentation
+
+frontend/
+├── src/
+│   ├── hooks/
+│   │   ├── useWebSocket.js       # Channel 1 (chat)
+│   │   └── useProgressSocket.js  # Channel 2 (progress)
+│   ├── components/
+│   │   ├── SplitChatView.jsx     # Main split view
+│   │   ├── MessageList.jsx       # Chat messages
+│   │   ├── InputArea.jsx         # User input
+│   │   └── ActivityLog.jsx       # Progress/activity panel
+│   └── services/
+│       └── api.js                # HTTP API client
 ```
 
 ## Setup Requirements
 
-1. tmux installed and in PATH
-2. Claude CLI installed and authenticated
-3. MCP server registered via `scripts/setup-mcp.sh`
-4. Backend running on port 8000
-5. Frontend running (Vite dev server)
+1. **tmux** installed and in PATH
+2. **Claude CLI** installed and authenticated
+3. **Python websockets** package installed (`pip install websockets`)
+4. **Backend running** on port 8000 (starts progress WebSocket on 8001)
+5. **Frontend running** (Vite dev server on port 5173)
+
+## Troubleshooting
+
+### notify.sh not working
+
+**Symptoms:** Claude runs ./notify.sh but UI doesn't update
+
+**Solutions:**
+1. Verify WebSocket server is running on port 8001
+2. Check notify.sh has correct GUID: `cat sessions/<guid>/notify.sh | grep GUID`
+3. Test manually: `cd sessions/<guid> && ./notify.sh test "hello"`
+4. Check Python websockets installed: `python3 -c "import websockets; print('OK')"`
+
+### UI not receiving progress updates
+
+**Symptoms:** Chat works but activity log is empty
+
+**Solutions:**
+1. Check browser console for WebSocket connection to port 8001
+2. Verify UI is subscribing to correct GUID: `ws://localhost:8001/ws/<guid>`
+3. Check backend logs for WebSocket server startup message
+
+### Session not initializing
+
+**Symptoms:** Session creation times out
+
+**Solutions:**
+1. Verify tmux is installed: `which tmux`
+2. Check Claude CLI is authenticated: `claude --version`
+3. Look at backend logs for specific error messages
+4. Verify sessions directory exists and is writable

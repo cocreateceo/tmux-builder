@@ -2,6 +2,22 @@
 
 **A Complete Guide Based on SmartBuild Pattern**
 
+> **HISTORICAL REFERENCE NOTE (2026-01-26)**
+>
+> This document describes the **marker-based file I/O approach** used in earlier versions of tmux-builder.
+> The current architecture uses **MCP (Model Context Protocol)** for real-time progress communication instead of file markers.
+>
+> **For the current architecture, see:**
+> - [ARCHITECTURE.md](../architecture/ARCHITECTURE.md) - Current dual-channel MCP architecture
+> - [SETUP.md](SETUP.md) - Current setup instructions
+>
+> This guide remains useful for:
+> - Understanding the foundational tmux integration patterns
+> - Projects that don't need real-time progress (simpler marker-based approach)
+> - Reference for SmartBuild-style implementations
+
+---
+
 Version: 2.1
 Date: 2026-01-25
 Author: Based on SmartBuild (https://github.com/GopiSunware/SmartBuild)

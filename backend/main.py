@@ -180,6 +180,7 @@ class RegistrationRequest(BaseModel):
 
 class ChatMessage(BaseModel):
     message: str
+    guid: Optional[str] = None  # For session re-attachment after server restart
     screenshot: Optional[str] = None
     filePath: Optional[str] = None
 
@@ -407,16 +408,33 @@ async def get_status():
 @app.post("/api/chat")
 async def chat(chat_message: ChatMessage):
     """Send a message to Claude and get response."""
+    global session_controller
+
     logger.info("=== CHAT MESSAGE ===")
     logger.info(f"Message: {chat_message.message[:100]}...")
+    if chat_message.guid:
+        logger.info(f"GUID: {chat_message.guid}")
+
+    # Re-attach to existing session if session_controller is None but GUID provided
+    if session_controller is None and chat_message.guid:
+        from tmux_helper import TmuxHelper
+        from config import SESSION_PREFIX
+
+        session_name = f"{SESSION_PREFIX}_{chat_message.guid}"
+        if TmuxHelper.session_exists(session_name):
+            logger.info(f"Re-attaching to existing session: {session_name}")
+            session_controller = SessionController(guid=chat_message.guid)
+        else:
+            logger.error(f"Tmux session not found: {session_name}")
+            raise HTTPException(status_code=400, detail="Session expired. Please create a new session.")
 
     if session_controller is None:
-        logger.error("No active session")
-        raise HTTPException(status_code=400, detail="No active session")
+        logger.error("No active session and no GUID provided")
+        raise HTTPException(status_code=400, detail="No active session. Please create a new session.")
 
     if not session_controller.is_active():
         logger.error("Session is not active")
-        raise HTTPException(status_code=400, detail="Session is not active")
+        raise HTTPException(status_code=400, detail="Session is not active. Please create a new session.")
 
     try:
         # Send message and wait for response (use async version)

@@ -119,7 +119,7 @@ function SplitChatView() {
     setError(null);
 
     try {
-      const response = await apiService.sendMessage(message);
+      const response = await apiService.sendMessage(message, guid);
       if (response.success && response.response) {
         setMessages(prev => [...prev, {
           role: 'assistant',
@@ -132,7 +132,7 @@ function SplitChatView() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [guid]);
 
   // Clear chat
   const handleClearChat = async () => {

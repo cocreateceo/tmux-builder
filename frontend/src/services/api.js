@@ -23,9 +23,10 @@ export const apiService = {
   },
 
   // Send a message
-  sendMessage: async (message, screenshot = null, filePath = null) => {
+  sendMessage: async (message, guid = null, screenshot = null, filePath = null) => {
     const response = await api.post('/api/chat', {
       message,
+      guid,  // For session re-attachment after server restart
       screenshot,
       filePath,
     });

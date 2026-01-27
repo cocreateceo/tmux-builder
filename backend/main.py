@@ -383,6 +383,257 @@ async def create_session():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==============================================
+# ADMIN API ENDPOINTS
+# ==============================================
+
+class AdminSessionCreate(BaseModel):
+    """Request model for admin session creation."""
+    email: str
+    phone: Optional[str] = "0000000000"
+    initial_request: Optional[str] = ""
+
+
+class SessionInfo(BaseModel):
+    """Session information for admin listing."""
+    guid: str
+    guid_short: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    state: Optional[str] = None
+    progress: Optional[int] = 0
+    user_request: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    tmux_active: bool = False
+    has_chat_history: bool = False
+    chat_message_count: int = 0
+    activity_log_count: int = 0
+
+
+@app.get("/api/admin/sessions")
+async def list_sessions(filter: str = "all"):
+    """
+    List all sessions with metadata and tmux status.
+
+    Filter options:
+    - all: All sessions
+    - active: Only sessions with active tmux
+    - completed: Only sessions without active tmux
+    """
+    from tmux_helper import TmuxHelper
+    from config import SESSION_PREFIX
+
+    logger.info(f"=== ADMIN LIST SESSIONS (filter: {filter}) ===")
+
+    sessions = []
+
+    if not ACTIVE_SESSIONS_DIR.exists():
+        return {"sessions": [], "total": 0, "filter": filter}
+
+    # Get list of active tmux sessions
+    active_tmux_sessions = set()
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["tmux", "list-sessions", "-F", "#{session_name}"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                if line.startswith(SESSION_PREFIX):
+                    # Extract GUID from session name
+                    guid = line.replace(f"{SESSION_PREFIX}_", "")
+                    active_tmux_sessions.add(guid)
+    except Exception as e:
+        logger.warning(f"Could not list tmux sessions: {e}")
+
+    # Iterate through session folders
+    for session_dir in ACTIVE_SESSIONS_DIR.iterdir():
+        if not session_dir.is_dir():
+            continue
+
+        guid = session_dir.name
+        tmux_active = guid in active_tmux_sessions
+
+        # Apply filter
+        if filter == "active" and not tmux_active:
+            continue
+        if filter == "completed" and tmux_active:
+            continue
+
+        # Read session metadata
+        status_file = session_dir / "status.json"
+        chat_history_file = session_dir / "chat_history.jsonl"
+        activity_log_file = session_dir / "activity_log.jsonl"
+
+        session_info = SessionInfo(
+            guid=guid,
+            guid_short=guid[:12] + "...",
+            tmux_active=tmux_active
+        )
+
+        # Read status.json
+        if status_file.exists():
+            try:
+                status_data = json.loads(status_file.read_text())
+                session_info.email = status_data.get("email")
+                session_info.phone = status_data.get("phone")
+                session_info.state = status_data.get("state")
+                session_info.progress = status_data.get("progress", 0)
+                session_info.user_request = status_data.get("user_request")
+                session_info.updated_at = status_data.get("updated_at")
+            except Exception as e:
+                logger.warning(f"Could not read status.json for {guid}: {e}")
+
+        # Get folder creation time
+        try:
+            stat = session_dir.stat()
+            session_info.created_at = datetime.fromtimestamp(stat.st_ctime).isoformat() + "Z"
+        except Exception:
+            pass
+
+        # Count chat history messages
+        if chat_history_file.exists():
+            session_info.has_chat_history = True
+            try:
+                with open(chat_history_file) as f:
+                    session_info.chat_message_count = sum(1 for _ in f)
+            except Exception:
+                pass
+
+        # Count activity log entries
+        if activity_log_file.exists():
+            try:
+                with open(activity_log_file) as f:
+                    session_info.activity_log_count = sum(1 for _ in f)
+            except Exception:
+                pass
+
+        sessions.append(session_info)
+
+    # Sort by created_at descending (newest first)
+    sessions.sort(key=lambda s: s.created_at or "", reverse=True)
+
+    logger.info(f"Found {len(sessions)} sessions")
+    return {
+        "sessions": [s.model_dump() for s in sessions],
+        "total": len(sessions),
+        "filter": filter
+    }
+
+
+@app.post("/api/admin/sessions")
+async def create_admin_session(request: AdminSessionCreate):
+    """
+    Create a new session with custom email/phone/initial request.
+
+    This allows admin to create sessions with specific metadata.
+    """
+    global session_controller
+
+    logger.info("=== ADMIN CREATE SESSION ===")
+    logger.info(f"Email: {request.email}")
+    logger.info(f"Phone: {request.phone}")
+    logger.info(f"Initial request: {request.initial_request[:50] if request.initial_request else '(none)'}...")
+
+    try:
+        # Generate unique GUID
+        import uuid
+        import time
+        unique_seed = f"{request.email}:{time.time()}:{uuid.uuid4()}"
+        new_guid = hashlib.sha256(unique_seed.encode('utf-8')).hexdigest()
+        logger.info(f"Generated GUID: {new_guid}")
+
+        # Initialize session
+        from session_initializer import SessionInitializer
+        initializer = SessionInitializer()
+
+        result = await initializer.initialize_session(
+            guid=new_guid,
+            email=request.email,
+            phone=request.phone or "0000000000"
+        )
+
+        if result.get('success'):
+            # Create SessionController
+            session_controller = SessionController(guid=new_guid)
+            logger.info(f"✓ Admin session created: {session_controller.session_name}")
+
+            # If initial request provided, save it to status.json
+            if request.initial_request:
+                status_file = ACTIVE_SESSIONS_DIR / new_guid / "status.json"
+                if status_file.exists():
+                    status_data = json.loads(status_file.read_text())
+                    status_data["user_request"] = request.initial_request
+                    status_file.write_text(json.dumps(status_data, indent=2))
+
+            return {
+                "success": True,
+                "message": "Session created successfully",
+                "guid": new_guid,
+                "email": request.email
+            }
+        else:
+            error_msg = result.get('error', 'Unknown error')
+            logger.error(f"Failed to create admin session: {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating admin session: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/sessions/{guid}")
+async def get_session_details(guid: str):
+    """Get detailed information about a specific session."""
+    from tmux_helper import TmuxHelper
+    from config import SESSION_PREFIX
+
+    logger.info(f"=== ADMIN GET SESSION DETAILS: {guid[:12]}... ===")
+
+    session_dir = ACTIVE_SESSIONS_DIR / guid
+    if not session_dir.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Check tmux status
+    session_name = f"{SESSION_PREFIX}_{guid}"
+    tmux_active = TmuxHelper.session_exists(session_name)
+
+    result = {
+        "guid": guid,
+        "guid_short": guid[:12] + "...",
+        "tmux_active": tmux_active,
+        "session_name": session_name,
+        "files": {}
+    }
+
+    # Read all metadata files
+    for filename in ["status.json", "chat_history.jsonl", "activity_log.jsonl", "prompt.txt"]:
+        filepath = session_dir / filename
+        if filepath.exists():
+            try:
+                content = filepath.read_text()
+                if filename.endswith(".jsonl"):
+                    # Parse JSONL to list
+                    result["files"][filename] = [
+                        json.loads(line) for line in content.strip().split('\n') if line.strip()
+                    ]
+                elif filename.endswith(".json"):
+                    result["files"][filename] = json.loads(content)
+                else:
+                    result["files"][filename] = content
+            except Exception as e:
+                result["files"][filename] = f"Error reading: {e}"
+
+    # List subfolders
+    result["folders"] = [d.name for d in session_dir.iterdir() if d.is_dir()]
+
+    return result
+
+
 @app.get("/api/status")
 async def get_status():
     """Get session status."""

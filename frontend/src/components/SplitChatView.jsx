@@ -4,6 +4,7 @@ import apiService from '../services/api';
 import MessageList from './MessageList';
 import InputArea from './InputArea';
 import McpToolsLog from './McpToolsLog';
+import AdminSessionList from './AdminSessionList';
 
 function SplitChatView() {
   const [messages, setMessages] = useState([]);
@@ -160,23 +161,43 @@ function SplitChatView() {
     }
   };
 
-  // Session creation screen
+  // Handle session selection from admin list
+  const handleSelectSession = useCallback(async (selectedGuid) => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Store GUID and load history
+      localStorage.setItem('tmux_builder_guid', selectedGuid);
+      setGuid(selectedGuid);
+
+      const historyResponse = await apiService.getHistory(selectedGuid);
+      if (historyResponse && historyResponse.messages) {
+        setMessages(historyResponse.messages);
+        console.log('[SplitChatView] Loaded', historyResponse.messages.length, 'messages');
+      }
+      setSessionReady(true);
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Failed to load session');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Handle new session creation from admin
+  const handleAdminCreateSession = useCallback(async (newGuid) => {
+    localStorage.setItem('tmux_builder_guid', newGuid);
+    setGuid(newGuid);
+    setMessages([]);
+    setSessionReady(true);
+  }, []);
+
+  // Session selection screen (Admin UI)
   if (!sessionReady) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-100">
-        <div className="bg-white rounded-lg shadow-lg p-8 text-center max-w-md">
-          <h2 className="text-2xl font-bold mb-4">Tmux Builder</h2>
-          <p className="text-gray-600 mb-6">Dual-channel chat with real-time activity log</p>
-          {error && <div className="bg-red-100 text-red-700 p-3 rounded mb-4">{error}</div>}
-          <button
-            onClick={handleCreateSession}
-            disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg disabled:bg-gray-400"
-          >
-            {loading ? 'Creating...' : 'Create Session'}
-          </button>
-        </div>
-      </div>
+      <AdminSessionList
+        onSelectSession={handleSelectSession}
+        onCreateSession={handleAdminCreateSession}
+      />
     );
   }
 

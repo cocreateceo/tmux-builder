@@ -45,6 +45,30 @@ export const apiService = {
     const response = await api.post('/api/clear');
     return response.data;
   },
+
+  // ========== ADMIN API ==========
+
+  // List all sessions with metadata
+  listSessions: async (filter = 'all') => {
+    const response = await api.get('/api/admin/sessions', { params: { filter } });
+    return response.data;
+  },
+
+  // Create session with custom metadata
+  createAdminSession: async (email, phone = '', initialRequest = '') => {
+    const response = await api.post('/api/admin/sessions', {
+      email,
+      phone: phone || '0000000000',
+      initial_request: initialRequest,
+    });
+    return response.data;
+  },
+
+  // Get detailed session info
+  getSessionDetails: async (guid) => {
+    const response = await api.get(`/api/admin/sessions/${guid}`);
+    return response.data;
+  },
 };
 
 export default apiService;

@@ -71,9 +71,10 @@ function SplitChatView() {
       if (guid && !sessionReady) {
         try {
           // Check if session is still valid by fetching history
-          const historyResponse = await apiService.getHistory();
+          const historyResponse = await apiService.getHistory(guid);
           if (historyResponse && historyResponse.messages) {
             setMessages(historyResponse.messages);
+            console.log('[SplitChatView] Restored', historyResponse.messages.length, 'messages');
           }
           // Session exists, mark as ready
           setSessionReady(true);

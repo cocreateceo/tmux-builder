@@ -247,8 +247,9 @@ export function useProgressSocket(guid, handlers = {}) {
             break;
 
           case 'history':
-            // Handle message history from server
+            // Handle message history from server (restores activity log on reconnect)
             if (rawData.messages && Array.isArray(rawData.messages)) {
+              console.log('[MCP-WS] Restoring', rawData.messages.length, 'activity log entries');
               rawData.messages.forEach((msg) => {
                 const normalized = normalizeMessage(msg);
                 addToActivityLog(normalized);

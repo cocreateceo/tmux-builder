@@ -441,13 +441,35 @@ async def chat(chat_message: ChatMessage):
 
 
 @app.get("/api/history")
-async def get_history():
-    """Get chat history."""
-    if session_controller is None:
+async def get_history(guid: str = None):
+    """Get chat history from file (survives server restart)."""
+    # Try to get GUID from query param, then from global session_controller
+    target_guid = guid
+    if not target_guid and session_controller:
+        target_guid = session_controller.guid
+
+    if not target_guid:
         return HistoryResponse(messages=[])
 
-    messages = session_controller.get_chat_history()
-    return HistoryResponse(messages=messages)
+    # Read directly from chat_history.jsonl file
+    try:
+        session_path = ACTIVE_SESSIONS_DIR / target_guid
+        history_file = session_path / "chat_history.jsonl"
+
+        if not history_file.exists():
+            return HistoryResponse(messages=[])
+
+        messages = []
+        with open(history_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    messages.append(json.loads(line))
+
+        return HistoryResponse(messages=messages)
+    except Exception as e:
+        logger.error(f"Failed to read chat history: {e}")
+        return HistoryResponse(messages=[])
 
 
 @app.post("/api/clear")

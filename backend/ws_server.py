@@ -16,7 +16,7 @@ from typing import Dict, Set
 import websockets
 from websockets.server import WebSocketServerProtocol
 
-from config import WS_MAX_MESSAGE_HISTORY
+from config import WS_MAX_MESSAGE_HISTORY, ACTIVE_SESSIONS_DIR
 
 # Use centralized logging (configured in config.py)
 logger = logging.getLogger(__name__)
@@ -75,18 +75,20 @@ class ProgressWebSocketServer:
         """Subscribe a client to GUID updates."""
         if guid not in self.subscribers:
             self.subscribers[guid] = set()
-            self.message_history[guid] = []
+            # Load history from file (survives server restart)
+            self.message_history[guid] = self._load_from_file(guid)
 
         self.subscribers[guid].add(websocket)
         logger.debug(f"Client subscribed to {guid} (total: {len(self.subscribers[guid])})")
 
-        # Send message history to new subscriber
+        # Send message history to new subscriber (from file-backed storage)
         if self.message_history[guid]:
             try:
                 await websocket.send(json.dumps({
                     "type": "history",
                     "messages": self.message_history[guid]
                 }))
+                logger.info(f"Sent {len(self.message_history[guid])} history messages to client")
             except Exception as e:
                 logger.warning(f"Failed to send history: {e}")
 
@@ -127,15 +129,51 @@ class ProgressWebSocketServer:
             logger.error(f"Error handling message: {e}")
 
     def _add_to_history(self, guid: str, message: dict):
-        """Add message to history, keeping only last N messages."""
+        """Add message to history (in-memory + file)."""
         if guid not in self.message_history:
             self.message_history[guid] = []
 
         self.message_history[guid].append(message)
 
-        # Trim to max size
+        # Trim in-memory to max size
         if len(self.message_history[guid]) > self.max_history:
             self.message_history[guid] = self.message_history[guid][-self.max_history:]
+
+        # Persist to file
+        self._persist_to_file(guid, message)
+
+    def _persist_to_file(self, guid: str, message: dict):
+        """Append message to activity_log.jsonl file."""
+        try:
+            session_path = ACTIVE_SESSIONS_DIR / guid
+            if session_path.exists():
+                log_file = session_path / "activity_log.jsonl"
+                with open(log_file, 'a') as f:
+                    f.write(json.dumps(message) + '\n')
+        except Exception as e:
+            logger.warning(f"Failed to persist activity log: {e}")
+
+    def _load_from_file(self, guid: str) -> list:
+        """Load activity log from file."""
+        try:
+            session_path = ACTIVE_SESSIONS_DIR / guid
+            log_file = session_path / "activity_log.jsonl"
+
+            if not log_file.exists():
+                return []
+
+            messages = []
+            with open(log_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        messages.append(json.loads(line))
+
+            # Return last N messages
+            return messages[-self.max_history:]
+        except Exception as e:
+            logger.warning(f"Failed to load activity log: {e}")
+            return []
 
     async def _broadcast(self, guid: str, message: dict):
         """Broadcast message to all subscribers of a GUID."""

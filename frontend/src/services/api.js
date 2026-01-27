@@ -33,8 +33,9 @@ export const apiService = {
   },
 
   // Get chat history
-  getHistory: async () => {
-    const response = await api.get('/api/history');
+  getHistory: async (guid = null) => {
+    const params = guid ? { guid } : {};
+    const response = await api.get('/api/history', { params });
     return response.data;
   },
 

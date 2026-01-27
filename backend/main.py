@@ -189,6 +189,7 @@ class ChatResponse(BaseModel):
     success: bool
     response: str
     timestamp: str
+    guid: Optional[str] = None  # Return GUID for frontend to store
 
 
 class SessionStatus(BaseModel):
@@ -412,29 +413,49 @@ async def chat(chat_message: ChatMessage):
 
     logger.info("=== CHAT MESSAGE ===")
     logger.info(f"Message: {chat_message.message[:100]}...")
-    if chat_message.guid:
-        logger.info(f"GUID: {chat_message.guid}")
+    logger.info(f"GUID received: {chat_message.guid or '(none)'}")
 
-    # Re-attach to existing session if session_controller is None but GUID provided
-    if session_controller is None and chat_message.guid:
+    # Auto-recover or auto-create session if needed
+    if session_controller is None:
         from tmux_helper import TmuxHelper
+        from session_initializer import SessionInitializer
         from config import SESSION_PREFIX
 
-        session_name = f"{SESSION_PREFIX}_{chat_message.guid}"
-        if TmuxHelper.session_exists(session_name):
-            logger.info(f"Re-attaching to existing session: {session_name}")
-            session_controller = SessionController(guid=chat_message.guid)
-        else:
-            logger.error(f"Tmux session not found: {session_name}")
-            raise HTTPException(status_code=400, detail="Session expired. Please create a new session.")
+        target_guid = chat_message.guid
 
-    if session_controller is None:
-        logger.error("No active session and no GUID provided")
-        raise HTTPException(status_code=400, detail="No active session. Please create a new session.")
+        # If no GUID provided, generate a new one
+        if not target_guid:
+            import uuid
+            import time
+            unique_seed = f"{DEFAULT_USER}@demo.local:{time.time()}:{uuid.uuid4()}"
+            target_guid = hashlib.sha256(unique_seed.encode('utf-8')).hexdigest()
+            logger.info(f"Generated new GUID: {target_guid}")
+
+        session_name = f"{SESSION_PREFIX}_{target_guid}"
+
+        if TmuxHelper.session_exists(session_name):
+            # Re-attach to existing tmux session
+            logger.info(f"Re-attaching to existing session: {session_name}")
+            session_controller = SessionController(guid=target_guid)
+        else:
+            # Auto-create new session
+            logger.info(f"Auto-creating new session: {session_name}")
+            initializer = SessionInitializer()
+            result = await initializer.initialize_session(
+                guid=target_guid,
+                email=f"{DEFAULT_USER}@demo.local",
+                phone="0000000000"
+            )
+            if result.get('success'):
+                session_controller = SessionController(guid=target_guid)
+                logger.info(f"Session auto-created successfully")
+            else:
+                logger.error(f"Failed to auto-create session: {result.get('error')}")
+                raise HTTPException(status_code=500, detail="Failed to create session")
 
     if not session_controller.is_active():
         logger.error("Session is not active")
-        raise HTTPException(status_code=400, detail="Session is not active. Please create a new session.")
+        raise HTTPException(status_code=400, detail="Session is not active")
 
     try:
         # Send message and wait for response (use async version)
@@ -450,7 +471,8 @@ async def chat(chat_message: ChatMessage):
         return ChatResponse(
             success=True,
             response=response,
-            timestamp=datetime.utcnow().isoformat() + "Z"
+            timestamp=datetime.utcnow().isoformat() + "Z",
+            guid=session_controller.guid  # Return GUID for frontend to store
         )
 
     except Exception as e:

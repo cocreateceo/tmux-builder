@@ -121,6 +121,12 @@ function SplitChatView() {
     try {
       const response = await apiService.sendMessage(message, guid);
       if (response.success && response.response) {
+        // Store GUID if returned (auto-created session)
+        if (response.guid && response.guid !== guid) {
+          localStorage.setItem('tmux_builder_guid', response.guid);
+          setGuid(response.guid);
+          console.log('[SplitChatView] Stored new GUID:', response.guid);
+        }
         setMessages(prev => [...prev, {
           role: 'assistant',
           content: response.response,

@@ -79,6 +79,17 @@ Tmux Builder enables web UI interaction with Claude AI through isolated tmux ses
 - **Transport**: WebSocket
 - **Purpose**: Real-time progress updates, activity logging
 - **Flow**: Claude CLI → notify.sh → WebSocket Server → UI
+- **Signaling**: asyncio.Event for instant backend notification (ack/done)
+
+### Event-Based Synchronization
+
+The WebSocket server signals the session_controller directly using asyncio.Event:
+
+```
+notify.sh sends ack → ws_server receives → sets ack_event → session_controller wakes up instantly
+```
+
+This replaces polling-based waiting, eliminating race conditions where acks arrived before wait loops started.
 
 ## notify.sh Script
 
@@ -105,6 +116,33 @@ Each session gets a dedicated `notify.sh` script with the session GUID baked in.
 2. Template has `{{GUID}}` placeholder replaced with actual session GUID
 3. Script uses Python websockets to send JSON messages to `ws://localhost:8001/ws/<guid>`
 4. WebSocket server broadcasts to all UI clients subscribed to that GUID
+
+## Backend Synchronization (asyncio.Event)
+
+The backend uses asyncio.Event for instant notification between components:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     BACKEND INTERNAL SIGNALING                              │
+│                                                                             │
+│  ┌────────────────────┐         ┌─────────────────────┐                    │
+│  │  session_controller│         │    ws_server        │                    │
+│  │                    │         │                     │                    │
+│  │  await event.wait()│◀────────│  event.set()        │◀─── notify.sh ack  │
+│  │  (instant wakeup)  │         │  (on ack received)  │                    │
+│  └────────────────────┘         └─────────────────────┘                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Why events instead of polling:**
+- **Instant**: No 0.5s polling delay
+- **Race-safe**: Event persists until waited upon (cleared before each wait)
+- **Efficient**: No CPU cycles wasted in tight loops
+
+**Events per GUID:**
+- `ack_events[guid]`: Set when Claude sends `./notify.sh ack`
+- `done_events[guid]`: Set when Claude sends `./notify.sh done` or `error`
 
 ## Message Flow
 
@@ -153,6 +191,7 @@ Each session gets a dedicated `notify.sh` script with the session GUID baked in.
 | TmuxHelper | Low-level tmux command execution |
 | SessionController | Message orchestration |
 | SessionInitializer | Session creation with notify.sh generation |
+| asyncio.Event | Instant signaling between ws_server and session_controller |
 
 ## Message Types
 

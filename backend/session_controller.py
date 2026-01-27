@@ -51,17 +51,25 @@ class SessionController:
         logger.info(f"Session path: {self.session_path}")
         logger.info(f"Session name: {self.session_name}")
 
+    def _generate_prompt_filename(self) -> str:
+        """Generate unique prompt filename with millisecond timestamp."""
+        import time
+        timestamp_ms = int(time.time() * 1000)
+        return f"prompt_{timestamp_ms}.txt"
+
     async def send_message_async(self, message: str, timeout: float = RESPONSE_TIMEOUT) -> Optional[str]:
         """
         Send a message to Claude using notify.sh-based protocol (async version).
 
         Protocol:
-        1. Write message to prompt.txt
+        1. Write message to prompt_{timestamp}.txt (unique file to avoid caching)
         2. Send instruction with notify.sh usage
         3. Wait for ./notify.sh ack (short timeout)
         4. Return immediately - don't block waiting for completion
         5. Completion updates chat_history via ws_server when done arrives
         """
+        import os
+
         logger.info("=== SENDING MESSAGE (notify.sh Protocol) ===")
         logger.info(f"Message: {message[:100]}...")
 
@@ -70,13 +78,30 @@ class SessionController:
             logger.info("Step 1: Appending user message to history...")
             self._append_to_history("user", message)
 
-            # Step 2: Write message to prompt.txt
-            logger.info("Step 2: Writing prompt to file...")
-            self.prompt_file_path.parent.mkdir(parents=True, exist_ok=True)
-            self.prompt_file_path.write_text(message)
+            # Step 2: Write message to unique prompt file (timestamp prevents caching)
+            prompt_filename = self._generate_prompt_filename()
+            prompt_path = self.session_path / prompt_filename
+            logger.info(f"Step 2: Writing prompt to {prompt_filename}...")
+            prompt_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Step 3: Build instruction with notify.sh usage
-            instruction = self._build_notify_instruction()
+            # Write and force sync to disk
+            with open(prompt_path, 'w', encoding='utf-8') as f:
+                f.write(message)
+                f.flush()
+                os.fsync(f.fileno())
+
+            # Brief delay to ensure filesystem sync across WSL boundary
+            await asyncio.sleep(0.3)
+
+            # Verify write succeeded
+            written_content = prompt_path.read_text()
+            if written_content != message:
+                logger.error(f"Prompt write verification failed!")
+            else:
+                logger.info(f"Prompt verified in {prompt_filename}")
+
+            # Step 3: Build instruction with the specific filename
+            instruction = self._build_notify_instruction(prompt_filename)
 
             # Step 4: Send instruction via tmux
             logger.info("Step 4: Sending instruction via tmux...")
@@ -111,6 +136,8 @@ class SessionController:
         Note: This creates a fire-and-forget task. For proper async handling,
         use send_message_async directly.
         """
+        import os
+
         logger.info("=== SENDING MESSAGE (sync wrapper) ===")
         logger.info(f"Message: {message[:100]}...")
 
@@ -118,12 +145,30 @@ class SessionController:
             # Step 1: Append user message to history
             self._append_to_history("user", message)
 
-            # Step 2: Write message to prompt.txt
-            self.prompt_file_path.parent.mkdir(parents=True, exist_ok=True)
-            self.prompt_file_path.write_text(message)
+            # Step 2: Write message to unique prompt file (timestamp prevents caching)
+            prompt_filename = self._generate_prompt_filename()
+            prompt_path = self.session_path / prompt_filename
+            logger.info(f"Step 2: Writing prompt to {prompt_filename}...")
+            prompt_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Step 3: Build instruction with notify.sh usage
-            instruction = self._build_notify_instruction()
+            # Write and force sync to disk
+            with open(prompt_path, 'w', encoding='utf-8') as f:
+                f.write(message)
+                f.flush()
+                os.fsync(f.fileno())
+
+            # Brief delay to ensure filesystem sync across WSL boundary
+            time.sleep(0.3)
+
+            # Verify write succeeded
+            written_content = prompt_path.read_text()
+            if written_content != message:
+                logger.error(f"Prompt write verification failed!")
+            else:
+                logger.info(f"Prompt verified in {prompt_filename}")
+
+            # Step 3: Build instruction with the specific filename
+            instruction = self._build_notify_instruction(prompt_filename)
 
             # Step 4: Send instruction via tmux
             if not TmuxHelper.send_instruction(self.session_name, instruction):
@@ -206,14 +251,17 @@ class SessionController:
             logger.warning(f"Timeout waiting for completion from {self.guid}")
             return False, False
 
-    def _build_notify_instruction(self) -> str:
+    def _build_notify_instruction(self, prompt_filename: str = "prompt.txt") -> str:
         """
         Build instruction telling Claude to read the prompt.
 
-        Note: Claude already has system_prompt.txt with all notify.sh instructions,
-        so we just tell it to read the new message and process it.
+        Args:
+            prompt_filename: The unique prompt filename (e.g., prompt_1706012345678.txt)
+
+        Note: Using timestamped filenames ensures Claude CLI cannot serve cached content
+        since the file didn't exist before this request.
         """
-        return f"""New task in prompt.txt. Read it and execute.
+        return f"""NEW USER MESSAGE in {prompt_filename} - Read it NOW and execute.
 
 Remember: Start with ./notify.sh ack, report progress, end with ./notify.sh done"""
 

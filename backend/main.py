@@ -416,12 +416,19 @@ async def chat(chat_message: ChatMessage):
     logger.info(f"GUID received: {chat_message.guid or '(none)'}")
 
     # Auto-recover or auto-create session if needed
-    if session_controller is None:
+    # Also handle case where session_controller exists but for a different GUID
+    requested_guid = chat_message.guid
+    needs_session_switch = (
+        session_controller is None or
+        (requested_guid and session_controller.guid != requested_guid)
+    )
+
+    if needs_session_switch:
         from tmux_helper import TmuxHelper
         from session_initializer import SessionInitializer
         from config import SESSION_PREFIX
 
-        target_guid = chat_message.guid
+        target_guid = requested_guid
 
         # If no GUID provided, generate a new one
         if not target_guid:
@@ -430,6 +437,8 @@ async def chat(chat_message: ChatMessage):
             unique_seed = f"{DEFAULT_USER}@demo.local:{time.time()}:{uuid.uuid4()}"
             target_guid = hashlib.sha256(unique_seed.encode('utf-8')).hexdigest()
             logger.info(f"Generated new GUID: {target_guid}")
+        else:
+            logger.info(f"Switching to session with GUID: {target_guid}")
 
         session_name = f"{SESSION_PREFIX}_{target_guid}"
 

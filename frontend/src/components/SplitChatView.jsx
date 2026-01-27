@@ -20,16 +20,21 @@ function SplitChatView() {
   });
 
   // Channel 2: MCP WebSocket (progress/tools log)
+  // NOTE: Loading state is controlled by HTTP request lifecycle in handleSendMessage,
+  // NOT by WebSocket events. This prevents init acks from blocking the UI.
   const mcpHandlers = useMemo(() => ({
     // Generic message handler - called for ALL messages
     onMessage: (data) => {
       console.log('[SplitChatView] Message received:', data.type, data.message);
     },
     onAck: () => {
-      setLoading(true);
+      // Don't set loading here - ack is informational only
+      // Loading state is managed by handleSendMessage HTTP lifecycle
+      console.log('[SplitChatView] Ack received (informational)');
     },
     onComplete: () => {
-      setLoading(false);
+      // Don't set loading here either - HTTP response handles it
+      console.log('[SplitChatView] Complete received');
     },
     onDeployed: (data) => {
       // Add deployed URL as assistant message

@@ -4,6 +4,7 @@ import logging
 import os
 import json
 import asyncio
+import hashlib
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -334,7 +335,7 @@ async def create_session():
     The full autonomous prompt is sent with the first user message.
 
     For the full GUID-based flow, use /api/register instead.
-    This endpoint creates a session using a default GUID for demo purposes.
+    This endpoint creates a UNIQUE session for each request.
     """
     global session_controller
 
@@ -342,9 +343,12 @@ async def create_session():
     logger.info(f"User: {DEFAULT_USER}")
 
     try:
-        # Generate a simple GUID for demo mode
-        demo_guid = generate_guid(f"{DEFAULT_USER}@demo.local", "0000000000")
-        logger.info(f"Demo GUID: {demo_guid}")
+        # Generate a unique GUID using UUID + timestamp for fresh sessions
+        import uuid
+        import time
+        unique_seed = f"{DEFAULT_USER}@demo.local:{time.time()}:{uuid.uuid4()}"
+        demo_guid = hashlib.sha256(unique_seed.encode('utf-8')).hexdigest()
+        logger.info(f"New unique GUID: {demo_guid}")
 
         # Use SessionInitializer for simple health check
         from session_initializer import SessionInitializer

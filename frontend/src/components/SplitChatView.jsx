@@ -88,7 +88,7 @@ function SplitChatView() {
   // Send message
   const handleSendMessage = useCallback(async (messageData) => {
     const { message } = messageData;
-    clearActivityLog(); // Clear logs for new message
+    // NOTE: Don't clear activity log - let it accumulate across messages
     setMessages(prev => [...prev, { role: 'user', content: message, timestamp: new Date().toISOString() }]);
     setLoading(true);
     setError(null);
@@ -107,7 +107,7 @@ function SplitChatView() {
     } finally {
       setLoading(false);
     }
-  }, [clearActivityLog]);
+  }, []);
 
   // Clear chat
   const handleClearChat = async () => {

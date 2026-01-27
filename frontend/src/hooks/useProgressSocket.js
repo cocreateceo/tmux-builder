@@ -77,13 +77,17 @@ export function useProgressSocket(guid, handlers = {}) {
     };
   };
 
+  // Counter for unique IDs (persists across renders)
+  const idCounterRef = useRef(0);
+
   /**
    * Add message to activity log
    */
   const addToActivityLog = useCallback((msg) => {
     setActivityLog((prev) => {
+      idCounterRef.current += 1;
       const newLog = [...prev, {
-        id: Date.now() + Math.random(),
+        id: `${Date.now()}-${idCounterRef.current}-${Math.random().toString(36).slice(2, 9)}`,
         type: msg.type,
         message: msg.message,
         timestamp: msg.timestamp,

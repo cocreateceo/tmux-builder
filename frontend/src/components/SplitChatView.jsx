@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useProgressSocket } from '../hooks/useProgressSocket';
 import apiService from '../services/api';
 import MessageList from './MessageList';
@@ -64,6 +64,30 @@ function SplitChatView() {
     activityLog,
     clearActivityLog
   } = useProgressSocket(guid, mcpHandlers);
+
+  // Auto-resume session if GUID exists in localStorage
+  useEffect(() => {
+    const resumeSession = async () => {
+      if (guid && !sessionReady) {
+        try {
+          // Check if session is still valid by fetching history
+          const historyResponse = await apiService.getHistory();
+          if (historyResponse && historyResponse.messages) {
+            setMessages(historyResponse.messages);
+          }
+          // Session exists, mark as ready
+          setSessionReady(true);
+          console.log('[SplitChatView] Resumed session:', guid);
+        } catch (err) {
+          // Session doesn't exist or is invalid, clear stored GUID
+          console.log('[SplitChatView] Failed to resume session, clearing GUID');
+          localStorage.removeItem('tmux_builder_guid');
+          setGuid(null);
+        }
+      }
+    };
+    resumeSession();
+  }, [guid, sessionReady]);
 
   // Create session
   const handleCreateSession = async () => {

@@ -65,7 +65,7 @@ class ProgressWebSocketServer:
             async for message in websocket:
                 await self._handle_message(websocket, guid, message)
         except websockets.exceptions.ConnectionClosed:
-            logger.debug(f"Connection closed for {guid}")
+            pass  # Normal disconnect, no logging needed
         except Exception as e:
             logger.error(f"Error handling connection: {e}")
         finally:
@@ -78,7 +78,7 @@ class ProgressWebSocketServer:
             self.message_history[guid] = []
 
         self.subscribers[guid].add(websocket)
-        logger.info(f"Client subscribed to {guid} (total: {len(self.subscribers[guid])})")
+        logger.debug(f"Client subscribed to {guid} (total: {len(self.subscribers[guid])})")
 
         # Send message history to new subscriber
         if self.message_history[guid]:
@@ -97,7 +97,7 @@ class ProgressWebSocketServer:
             if not self.subscribers[guid]:
                 del self.subscribers[guid]
                 # Keep history for a while in case they reconnect
-            logger.info(f"Client unsubscribed from {guid}")
+            logger.debug(f"Client unsubscribed from {guid}")
 
     async def _handle_message(self, websocket: WebSocketServerProtocol, guid: str, raw_message: str):
         """Handle incoming message from a client."""

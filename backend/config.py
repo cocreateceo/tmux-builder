@@ -220,6 +220,10 @@ def setup_logging():
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
 
+    # Reduce noise from websockets library - only show WARNING+
+    logging.getLogger('websockets').setLevel(logging.WARNING)
+    logging.getLogger('websockets.server').setLevel(logging.WARNING)
+
     logging.info(f"Logging initialized - Console + File: {LOG_FILE}")
 
 # ==============================================

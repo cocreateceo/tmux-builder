@@ -30,6 +30,7 @@ class ProgressWebSocketServer:
     - UI client connections (subscribe to GUID updates)
     - notify.sh connections (send progress for a GUID)
     - Broadcasting messages to subscribed clients
+    - Signaling session_controller when ack/done received (asyncio.Event)
     """
 
     def __init__(self, host: str = "0.0.0.0", port: int = 8001):
@@ -42,6 +43,29 @@ class ProgressWebSocketServer:
         self.max_history = WS_MAX_MESSAGE_HISTORY
         self._server = None
         self._running = False
+
+        # Signaling events for session_controller (direct notification)
+        self.ack_events: Dict[str, asyncio.Event] = {}
+        self.done_events: Dict[str, asyncio.Event] = {}
+
+    def get_ack_event(self, guid: str) -> asyncio.Event:
+        """Get or create an ack event for a GUID."""
+        if guid not in self.ack_events:
+            self.ack_events[guid] = asyncio.Event()
+        return self.ack_events[guid]
+
+    def get_done_event(self, guid: str) -> asyncio.Event:
+        """Get or create a done event for a GUID."""
+        if guid not in self.done_events:
+            self.done_events[guid] = asyncio.Event()
+        return self.done_events[guid]
+
+    def clear_events(self, guid: str):
+        """Clear (reset) events for a GUID before waiting."""
+        if guid in self.ack_events:
+            self.ack_events[guid].clear()
+        if guid in self.done_events:
+            self.done_events[guid].clear()
 
     async def handler(self, websocket: WebSocketServerProtocol, path: str):
         """Handle incoming WebSocket connections."""
@@ -119,6 +143,21 @@ class ProgressWebSocketServer:
 
             # Store in history
             self._add_to_history(guid, message)
+
+            # Signal session_controller directly (instant notification)
+            if msg_type == 'ack':
+                event = self.get_ack_event(guid)
+                event.set()
+                logger.debug(f"[{guid}] Ack event signaled")
+            elif msg_type in ['done', 'complete', 'completed']:
+                event = self.get_done_event(guid)
+                event.set()
+                logger.debug(f"[{guid}] Done event signaled")
+            elif msg_type == 'error':
+                # Signal done event on error too (with error flag in history)
+                event = self.get_done_event(guid)
+                event.set()
+                logger.debug(f"[{guid}] Done event signaled (error)")
 
             # Broadcast to all subscribers of this GUID
             await self._broadcast(guid, message)

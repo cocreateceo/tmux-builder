@@ -150,36 +150,30 @@ class SessionController:
             return None
 
     async def _wait_for_ack(self, timeout: float = ACK_TIMEOUT) -> bool:
-        """Wait for ack message from Claude via WebSocket."""
+        """Wait for ack message from Claude via WebSocket (event-based)."""
         server = get_server()
         if not server:
             logger.warning("WebSocket server not running, skipping ack wait")
             return False
 
-        # Clear any previous ack messages to avoid false positives
-        if self.guid in server.message_history:
-            server.message_history[self.guid] = [
-                m for m in server.message_history[self.guid] if m.get('type') != 'ack'
-            ]
-            logger.debug(f"Cleared old ack messages for {self.guid}")
+        # Get the ack event (will be signaled when notify.sh sends ack)
+        event = server.get_ack_event(self.guid)
 
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            # Check message history for ack
-            if self.guid in server.message_history:
-                for msg in server.message_history[self.guid]:
-                    if msg.get('type') == 'ack':
-                        logger.info(f"Received ack from Claude for {self.guid}")
-                        return True
+        # Clear the event before waiting (reset for this message)
+        event.clear()
 
-            await asyncio.sleep(0.5)
-
-        logger.warning(f"Timeout waiting for ack from {self.guid}")
-        return False
+        try:
+            # Wait for the event to be set (signaled by ws_server when ack received)
+            await asyncio.wait_for(event.wait(), timeout=timeout)
+            logger.info(f"Received ack from Claude for {self.guid}")
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout waiting for ack from {self.guid}")
+            return False
 
     async def _wait_for_done(self, timeout: float = RESPONSE_TIMEOUT) -> tuple[bool, bool]:
         """
-        Wait for done or error message from Claude via WebSocket.
+        Wait for done or error message from Claude via WebSocket (event-based).
 
         Returns:
             Tuple of (completed, had_error)
@@ -192,19 +186,19 @@ class SessionController:
             logger.warning("WebSocket server not running, skipping done wait")
             return False, False
 
-        # Clear any previous done/error messages to avoid false positives
-        if self.guid in server.message_history:
-            server.message_history[self.guid] = [
-                m for m in server.message_history[self.guid]
-                if m.get('type') not in ['done', 'complete', 'completed', 'error']
-            ]
-            logger.debug(f"Cleared old completion messages for {self.guid}")
+        # Get the done event (will be signaled when notify.sh sends done/error)
+        event = server.get_done_event(self.guid)
 
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            # Check message history for done or error
+        # Clear the event before waiting (reset for this message)
+        event.clear()
+
+        try:
+            # Wait for the event to be set (signaled by ws_server when done/error received)
+            await asyncio.wait_for(event.wait(), timeout=timeout)
+
+            # Check the last message to determine if it was success or error
             if self.guid in server.message_history:
-                for msg in server.message_history[self.guid]:
+                for msg in reversed(server.message_history[self.guid]):
                     msg_type = msg.get('type')
                     if msg_type in ['done', 'complete', 'completed']:
                         logger.info(f"Task completed successfully for {self.guid}")
@@ -214,10 +208,13 @@ class SessionController:
                         logger.error(f"Task error for {self.guid}: {error_data}")
                         return True, True
 
-            await asyncio.sleep(1.0)
+            # Event was set but no done/error found - assume success
+            logger.info(f"Task completed for {self.guid}")
+            return True, False
 
-        logger.warning(f"Timeout waiting for completion from {self.guid}")
-        return False, False
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout waiting for completion from {self.guid}")
+            return False, False
 
     def _build_notify_instruction(self) -> str:
         """

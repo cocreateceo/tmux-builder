@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paper Todos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --paper-cream: #f5f0e6;
+            --paper-white: #faf8f3;
+            --graphite: #2d2a26;
+            --graphite-light: #5c5652;
+            --red-tape: #c84b31;
+            --red-tape-dark: #a33d28;
+            --shadow-soft: rgba(45, 42, 38, 0.08);
+            --shadow-medium: rgba(45, 42, 38, 0.15);
+            --shadow-strong: rgba(45, 42, 38, 0.25);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'DM Mono', monospace;
+            background: var(--paper-cream);
+            min-height: 100vh;
+            padding: 2rem;
+            background-image:
+                radial-gradient(circle at 20% 50%, rgba(200, 75, 49, 0.03) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(200, 75, 49, 0.02) 0%, transparent 40%),
+                url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%' height='100%' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+        }
+
+        .container {
+            max-width: 540px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 3rem;
+            position: relative;
+        }
+
+        h1 {
+            font-family: 'Caveat', cursive;
+            font-size: 4rem;
+            font-weight: 600;
+            color: var(--graphite);
+            letter-spacing: -0.02em;
+            position: relative;
+            display: inline-block;
+        }
+
+        h1::after {
+            content: '';
+            position: absolute;
+            bottom: 8px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--red-tape);
+            transform: rotate(-0.5deg);
+            opacity: 0.8;
+        }
+
+        .subtitle {
+            font-size: 0.75rem;
+            color: var(--graphite-light);
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            margin-top: 0.5rem;
+        }
+
+        .add-form {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 2.5rem;
+            position: relative;
+        }
+
+        .add-form::before {
+            content: '';
+            position: absolute;
+            top: -12px;
+            left: 20px;
+            width: 40px;
+            height: 18px;
+            background: var(--red-tape);
+            opacity: 0.9;
+            transform: rotate(-2deg);
+            box-shadow: 0 2px 4px var(--shadow-medium);
+        }
+
+        .add-input {
+            flex: 1;
+            padding: 1rem 1.25rem;
+            font-family: 'Caveat', cursive;
+            font-size: 1.5rem;
+            border: none;
+            background: var(--paper-white);
+            color: var(--graphite);
+            box-shadow:
+                0 1px 2px var(--shadow-soft),
+                0 4px 12px var(--shadow-soft),
+                inset 0 -2px 0 var(--shadow-soft);
+            outline: none;
+            transition: box-shadow 0.2s ease, transform 0.2s ease;
+        }
+
+        .add-input::placeholder {
+            color: var(--graphite-light);
+            opacity: 0.5;
+        }
+
+        .add-input:focus {
+            box-shadow:
+                0 2px 4px var(--shadow-medium),
+                0 8px 24px var(--shadow-medium),
+                inset 0 -2px 0 var(--shadow-soft);
+            transform: translateY(-1px);
+        }
+
+        .add-btn {
+            padding: 1rem 1.5rem;
+            font-family: 'DM Mono', monospace;
+            font-size: 0.875rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border: none;
+            background: var(--graphite);
+            color: var(--paper-cream);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            box-shadow: 0 2px 8px var(--shadow-medium);
+        }
+
+        .add-btn:hover {
+            background: var(--red-tape);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px var(--shadow-strong);
+        }
+
+        .add-btn:active {
+            transform: translateY(0);
+        }
+
+        .todo-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .todo-item {
+            position: relative;
+            background: var(--paper-white);
+            padding: 1.25rem 1.5rem;
+            padding-right: 3.5rem;
+            box-shadow:
+                0 1px 2px var(--shadow-soft),
+                0 4px 12px var(--shadow-soft);
+            transform-origin: top left;
+            animation: paperDrop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+            opacity: 0;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .todo-item:hover {
+            transform: translateY(-2px) rotate(-0.3deg);
+            box-shadow:
+                0 4px 8px var(--shadow-medium),
+                0 12px 32px var(--shadow-medium);
+        }
+
+        .todo-item::before {
+            content: '';
+            position: absolute;
+            top: -6px;
+            left: 50%;
+            transform: translateX(-50%) rotate(1deg);
+            width: 60px;
+            height: 14px;
+            background: var(--red-tape);
+            opacity: 0.85;
+            box-shadow: 0 1px 3px var(--shadow-medium);
+        }
+
+        .todo-item:nth-child(even)::before {
+            transform: translateX(-50%) rotate(-1.5deg);
+            left: 45%;
+        }
+
+        .todo-item:nth-child(3n)::before {
+            width: 50px;
+            left: 55%;
+        }
+
+        /* Torn paper edge effect */
+        .todo-item::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 8px;
+            background: linear-gradient(135deg,
+                var(--paper-white) 25%, transparent 25%,
+                transparent 50%, var(--paper-white) 50%,
+                var(--paper-white) 75%, transparent 75%);
+            background-size: 8px 8px;
+            opacity: 0.6;
+        }
+
+        @keyframes paperDrop {
+            0% {
+                opacity: 0;
+                transform: translateY(-20px) rotate(-3deg);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) rotate(0deg);
+            }
+        }
+
+        .todo-text {
+            font-family: 'Caveat', cursive;
+            font-size: 1.5rem;
+            color: var(--graphite);
+            line-height: 1.3;
+            transition: all 0.3s ease;
+        }
+
+        .todo-item.completed .todo-text {
+            text-decoration: line-through;
+            text-decoration-color: var(--red-tape);
+            text-decoration-thickness: 2px;
+            color: var(--graphite-light);
+            opacity: 0.6;
+        }
+
+        .todo-item.completed {
+            transform: rotate(0.5deg);
+            opacity: 0.7;
+        }
+
+        .delete-btn {
+            position: absolute;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 28px;
+            height: 28px;
+            border: none;
+            background: transparent;
+            color: var(--graphite-light);
+            cursor: pointer;
+            opacity: 0;
+            transition: all 0.2s ease;
+            font-size: 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .todo-item:hover .delete-btn {
+            opacity: 0.5;
+        }
+
+        .delete-btn:hover {
+            opacity: 1 !important;
+            color: var(--red-tape);
+            transform: translateY(-50%) scale(1.2);
+        }
+
+        .todo-item.removing {
+            animation: crumple 0.5s ease forwards;
+        }
+
+        @keyframes crumple {
+            0% {
+                transform: scale(1) rotate(0deg);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(0.8) rotate(5deg);
+                opacity: 0.5;
+            }
+            100% {
+                transform: scale(0) rotate(15deg);
+                opacity: 0;
+                height: 0;
+                padding: 0;
+                margin: 0;
+            }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--graphite-light);
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.3;
+        }
+
+        .empty-state-text {
+            font-family: 'Caveat', cursive;
+            font-size: 1.5rem;
+        }
+
+        .count {
+            margin-top: 2rem;
+            text-align: right;
+            font-size: 0.75rem;
+            color: var(--graphite-light);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        /* Stagger animation delays */
+        .todo-item:nth-child(1) { animation-delay: 0ms; }
+        .todo-item:nth-child(2) { animation-delay: 50ms; }
+        .todo-item:nth-child(3) { animation-delay: 100ms; }
+        .todo-item:nth-child(4) { animation-delay: 150ms; }
+        .todo-item:nth-child(5) { animation-delay: 200ms; }
+        .todo-item:nth-child(n+6) { animation-delay: 250ms; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Things to do</h1>
+            <p class="subtitle">Click to complete · Drag to delete</p>
+        </header>
+
+        <form class="add-form" id="addForm">
+            <input
+                type="text"
+                class="add-input"
+                id="todoInput"
+                placeholder="Write something down..."
+                autocomplete="off"
+            >
+            <button type="submit" class="add-btn">Add</button>
+        </form>
+
+        <ul class="todo-list" id="todoList"></ul>
+
+        <div class="count" id="count"></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('addForm');
+        const input = document.getElementById('todoInput');
+        const list = document.getElementById('todoList');
+        const countEl = document.getElementById('count');
+
+        // Load from localStorage
+        let todos = JSON.parse(localStorage.getItem('paperTodos') || '[]');
+
+        function saveTodos() {
+            localStorage.setItem('paperTodos', JSON.stringify(todos));
+        }
+
+        function updateCount() {
+            const active = todos.filter(t => !t.completed).length;
+            const total = todos.length;
+            if (total === 0) {
+                countEl.textContent = '';
+            } else {
+                countEl.textContent = `${active} of ${total} remaining`;
+            }
+        }
+
+        function renderTodos() {
+            if (todos.length === 0) {
+                list.innerHTML = `
+                    <li class="empty-state">
+                        <div class="empty-state-icon">📝</div>
+                        <div class="empty-state-text">Nothing here yet...</div>
+                    </li>
+                `;
+            } else {
+                list.innerHTML = todos.map((todo, index) => `
+                    <li class="todo-item ${todo.completed ? 'completed' : ''}" data-index="${index}">
+                        <span class="todo-text">${escapeHtml(todo.text)}</span>
+                        <button class="delete-btn" onclick="deleteTodo(event, ${index})">×</button>
+                    </li>
+                `).join('');
+            }
+            updateCount();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const text = input.value.trim();
+            if (text) {
+                todos.unshift({ text, completed: false });
+                saveTodos();
+                renderTodos();
+                input.value = '';
+                input.focus();
+            }
+        });
+
+        list.addEventListener('click', (e) => {
+            const item = e.target.closest('.todo-item');
+            if (item && !e.target.classList.contains('delete-btn')) {
+                const index = parseInt(item.dataset.index);
+                todos[index].completed = !todos[index].completed;
+                saveTodos();
+                item.classList.toggle('completed');
+                updateCount();
+            }
+        });
+
+        function deleteTodo(e, index) {
+            e.stopPropagation();
+            const item = e.target.closest('.todo-item');
+            item.classList.add('removing');
+            setTimeout(() => {
+                todos.splice(index, 1);
+                saveTodos();
+                renderTodos();
+            }, 500);
+        }
+
+        // Initial render
+        renderTodos();
+    </script>
+</body>
+</html>

@@ -19,10 +19,8 @@ BASE_DIR = Path(__file__).parent.resolve()
 # Project root (parent of backend)
 PROJECT_ROOT = BASE_DIR.parent
 
-# Sessions directory - USE NATIVE LINUX PATH for better filesystem performance
-# WSL has significant delays (~6+ seconds) for file visibility on /mnt/c/
-# Using native Linux path avoids these inter-process filesystem sync issues
-SESSIONS_DIR = Path.home() / "tmux-builder" / "sessions"
+# Sessions directory - Use project directory for easier access
+SESSIONS_DIR = PROJECT_ROOT / "sessions"
 ACTIVE_SESSIONS_DIR = SESSIONS_DIR / "active"
 DELETED_SESSIONS_DIR = SESSIONS_DIR / "deleted"
 

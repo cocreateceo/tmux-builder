@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import apiService from '../services/api';
 
-function AdminSessionList({ onSelectSession, onCreateSession }) {
+function AdminSessionList({ onSelectSession, onCreateSession, onBackToSession, currentGuid }) {
   const [sessions, setSessions] = useState([]);
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
@@ -82,9 +82,19 @@ function AdminSessionList({ onSelectSession, onCreateSession }) {
   return (
     <div className="h-screen flex flex-col bg-gray-100">
       {/* Header */}
-      <div className="bg-gray-800 text-white p-4">
-        <h1 className="text-xl font-bold">Tmux Builder - Admin</h1>
-        <p className="text-gray-400 text-sm">Session Management</p>
+      <div className="bg-gray-800 text-white p-4 flex justify-between items-center">
+        <div>
+          <h1 className="text-xl font-bold">Tmux Builder - Admin</h1>
+          <p className="text-gray-400 text-sm">Session Management</p>
+        </div>
+        {currentGuid && onBackToSession && (
+          <button
+            onClick={onBackToSession}
+            className="text-sm text-blue-400 hover:text-blue-300"
+          >
+            Back to Session
+          </button>
+        )}
       </div>
 
       <div className="flex-1 flex overflow-hidden">

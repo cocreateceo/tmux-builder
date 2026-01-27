@@ -4,11 +4,11 @@ import apiService from '../services/api';
 import MessageList from './MessageList';
 import InputArea from './InputArea';
 import McpToolsLog from './McpToolsLog';
-import AdminSessionList from './AdminSessionList';
+import SessionSidebar from './SessionSidebar';
 
 function SplitChatView() {
   const [messages, setMessages] = useState([]);
-  const [sessionReady, setSessionReady] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [guid, setGuid] = useState(() => {
@@ -74,7 +74,7 @@ function SplitChatView() {
   // Auto-resume session if GUID exists in localStorage
   useEffect(() => {
     const resumeSession = async () => {
-      if (guid && !sessionReady) {
+      if (guid) {
         try {
           // Check if session is still valid by fetching history
           const historyResponse = await apiService.getHistory(guid);
@@ -82,8 +82,6 @@ function SplitChatView() {
             setMessages(historyResponse.messages);
             console.log('[SplitChatView] Restored', historyResponse.messages.length, 'messages');
           }
-          // Session exists, mark as ready
-          setSessionReady(true);
           console.log('[SplitChatView] Resumed session:', guid);
         } catch (err) {
           // Session doesn't exist or is invalid, clear stored GUID
@@ -94,7 +92,7 @@ function SplitChatView() {
       }
     };
     resumeSession();
-  }, [guid, sessionReady]);
+  }, [guid]);
 
   // Create session
   const handleCreateSession = async () => {
@@ -161,12 +159,11 @@ function SplitChatView() {
     }
   };
 
-  // Handle session selection from admin list
+  // Handle session selection from sidebar
   const handleSelectSession = useCallback(async (selectedGuid) => {
     setLoading(true);
     setError(null);
     try {
-      // Store GUID and load history
       localStorage.setItem('tmux_builder_guid', selectedGuid);
       setGuid(selectedGuid);
 
@@ -174,44 +171,52 @@ function SplitChatView() {
       if (historyResponse && historyResponse.messages) {
         setMessages(historyResponse.messages);
         console.log('[SplitChatView] Loaded', historyResponse.messages.length, 'messages');
+      } else {
+        setMessages([]);
       }
-      setSessionReady(true);
+      clearActivityLog();
+      setSidebarOpen(false);
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Failed to load session');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearActivityLog]);
 
-  // Handle new session creation from admin
-  const handleAdminCreateSession = useCallback(async (newGuid) => {
+  // Handle new session creation from sidebar
+  const handleSidebarCreateSession = useCallback((newGuid) => {
     localStorage.setItem('tmux_builder_guid', newGuid);
     setGuid(newGuid);
     setMessages([]);
-    setSessionReady(true);
-  }, []);
-
-  // Session selection screen (Admin UI)
-  if (!sessionReady) {
-    return (
-      <AdminSessionList
-        onSelectSession={handleSelectSession}
-        onCreateSession={handleAdminCreateSession}
-      />
-    );
-  }
+    clearActivityLog();
+    setSidebarOpen(false);
+  }, [clearActivityLog]);
 
   // Main split view
   return (
     <div className="h-screen flex flex-col">
+      {/* Collapsible Session Sidebar */}
+      <SessionSidebar
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+        currentGuid={guid}
+        onSelectSession={handleSelectSession}
+        onCreateSession={handleSidebarCreateSession}
+      />
+
       {/* Header */}
-      <div className="bg-gray-800 text-white p-3 flex justify-between items-center">
+      <div className={`bg-gray-800 text-white p-3 flex justify-between items-center transition-all ${sidebarOpen ? 'ml-72' : 'ml-0'}`}>
         <div className="flex items-center gap-4">
           <h1 className="font-bold">Tmux Builder</h1>
           <div className="flex items-center gap-2 text-sm">
             <span className={`w-2 h-2 rounded-full ${mcpConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
             <span className="text-gray-400">MCP</span>
           </div>
+          {guid && (
+            <span className="text-xs text-gray-500 font-mono">
+              {guid.substring(0, 12)}...
+            </span>
+          )}
           {statusMessage && (
             <span className="text-sm text-gray-400 truncate max-w-xs">
               {statusMessage}
@@ -225,14 +230,14 @@ function SplitChatView() {
 
       {/* Error banner */}
       {error && (
-        <div className="bg-red-100 text-red-700 p-2 text-center text-sm">
+        <div className={`bg-red-100 text-red-700 p-2 text-center text-sm transition-all ${sidebarOpen ? 'ml-72' : 'ml-0'}`}>
           {error}
           <button onClick={() => setError(null)} className="ml-2 underline">Dismiss</button>
         </div>
       )}
 
       {/* Split panels */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className={`flex-1 flex overflow-hidden transition-all ${sidebarOpen ? 'ml-72' : 'ml-0'}`}>
         {/* Left: Chat */}
         <div className="w-1/2 flex flex-col border-r border-gray-300">
           <div className="flex-1 overflow-y-auto p-4 bg-white">

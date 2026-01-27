@@ -175,8 +175,8 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 # WEBSOCKET CONSTANTS
 # ==============================================
 
-# Maximum message history per session
-WS_MAX_MESSAGE_HISTORY = 50
+# Maximum message history per session (activity log entries)
+WS_MAX_MESSAGE_HISTORY = 500
 
 # ==============================================
 # LOGGING CONFIGURATION

@@ -88,8 +88,8 @@ export function useProgressSocket(guid, handlers = {}) {
         message: msg.message,
         timestamp: msg.timestamp,
       }];
-      // Keep last 100 messages
-      return newLog.slice(-100);
+      // Keep last 500 messages
+      return newLog.slice(-500);
     });
   }, []);
 

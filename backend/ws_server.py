@@ -99,20 +99,22 @@ class ProgressWebSocketServer:
         """Subscribe a client to GUID updates."""
         if guid not in self.subscribers:
             self.subscribers[guid] = set()
-            # Load history from file (survives server restart)
-            self.message_history[guid] = self._load_from_file(guid)
 
         self.subscribers[guid].add(websocket)
         logger.debug(f"Client subscribed to {guid} (total: {len(self.subscribers[guid])})")
 
-        # Send message history to new subscriber (from file-backed storage)
-        if self.message_history[guid]:
+        # Always load fresh history from file on each subscribe (browser refresh)
+        # This ensures we get all messages even if server was restarted
+        file_history = self._load_from_file(guid)
+        if file_history:
+            # Update in-memory cache
+            self.message_history[guid] = file_history
             try:
                 await websocket.send(json.dumps({
                     "type": "history",
-                    "messages": self.message_history[guid]
+                    "messages": file_history
                 }))
-                logger.info(f"Sent {len(self.message_history[guid])} history messages to client")
+                logger.info(f"Sent {len(file_history)} history messages to client")
             except Exception as e:
                 logger.warning(f"Failed to send history: {e}")
 

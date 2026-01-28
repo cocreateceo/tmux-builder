@@ -720,7 +720,7 @@ async def get_client_projects(email: str = None, guid: str = None):
 @app.post("/api/client/projects")
 async def create_client_project(data: ClientProjectCreate):
     """Create a new project for an existing client."""
-    guid = generate_guid()
+    guid = generate_unique_guid(data.email)
 
     try:
         initializer = SessionInitializer()
@@ -799,7 +799,7 @@ async def duplicate_client_project(guid: str):
             raise HTTPException(status_code=400, detail="Original project has no email")
 
         # Create new project
-        new_guid = generate_guid()
+        new_guid = generate_unique_guid(email)
         initializer = SessionInitializer()
         result = await initializer.initialize_session(
             guid=new_guid,

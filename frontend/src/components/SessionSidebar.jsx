@@ -6,6 +6,7 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [openMenuGuid, setOpenMenuGuid] = useState(null);
 
   // Fetch sessions
   const fetchSessions = async () => {
@@ -51,6 +52,63 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
     }
   };
 
+  // Toggle menu for a session
+  const toggleMenu = (e, guid) => {
+    e.stopPropagation();
+    setOpenMenuGuid(openMenuGuid === guid ? null : guid);
+  };
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => setOpenMenuGuid(null);
+    if (openMenuGuid) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [openMenuGuid]);
+
+  // Handle complete session (kill tmux)
+  const handleCompleteSession = async (e, guid) => {
+    e.stopPropagation();
+    setOpenMenuGuid(null);
+    try {
+      await apiService.completeSession(guid);
+      fetchSessions();
+    } catch (err) {
+      setError('Failed to complete session');
+    }
+  };
+
+  // Handle delete session
+  const handleDeleteSession = async (e, guid) => {
+    e.stopPropagation();
+    setOpenMenuGuid(null);
+    if (!confirm(`Delete session ${guid.substring(0, 12)}...?`)) {
+      return;
+    }
+    try {
+      await apiService.deleteSession(guid);
+      fetchSessions();
+      if (currentGuid === guid) {
+        onSelectSession(null);
+      }
+    } catch (err) {
+      setError('Failed to delete session');
+    }
+  };
+
+  // Handle restore session
+  const handleRestoreSession = async (e, guid) => {
+    e.stopPropagation();
+    setOpenMenuGuid(null);
+    try {
+      await apiService.restoreSession(guid);
+      fetchSessions();
+    } catch (err) {
+      setError('Failed to restore session');
+    }
+  };
+
   return (
     <>
       {/* Toggle button - always visible */}
@@ -88,6 +146,7 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
               <option value="all">All</option>
               <option value="active">Active</option>
               <option value="completed">Completed</option>
+              <option value="deleted">Deleted</option>
             </select>
             <button
               onClick={fetchSessions}
@@ -127,24 +186,81 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
                 <div
                   key={session.guid}
                   onClick={() => onSelectSession(session.guid)}
-                  className={`p-3 cursor-pointer hover:bg-gray-800 ${
+                  className={`p-3 cursor-pointer hover:bg-gray-800 group relative ${
                     currentGuid === session.guid ? 'bg-blue-900 border-l-4 border-blue-500' : ''
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs text-gray-400 truncate max-w-[140px]">
+                    <span className="font-mono text-xs text-gray-400 truncate max-w-[120px]">
                       {session.guid_short}
                     </span>
-                    <span
-                      className={`text-xs px-1.5 py-0.5 rounded ${
-                        session.tmux_active
-                          ? 'bg-green-900 text-green-300'
-                          : 'bg-gray-700 text-gray-400'
-                      }`}
-                    >
-                      {session.tmux_active ? 'Active' : 'Done'}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <span
+                        className={`text-xs px-1.5 py-0.5 rounded ${
+                          session.tmux_active
+                            ? 'bg-green-900 text-green-300'
+                            : filter === 'deleted'
+                              ? 'bg-red-900 text-red-300'
+                              : 'bg-gray-700 text-gray-400'
+                        }`}
+                      >
+                        {filter === 'deleted' ? 'Deleted' : session.tmux_active ? 'Active' : 'Done'}
+                      </span>
+                      {/* Menu button */}
+                      <button
+                        onClick={(e) => toggleMenu(e, session.guid)}
+                        className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white p-0.5 transition-opacity"
+                        title="Session actions"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Dropdown menu */}
+                  {openMenuGuid === session.guid && (
+                    <div className="absolute right-2 top-8 bg-gray-800 border border-gray-600 rounded shadow-lg z-50 min-w-[120px]">
+                      {filter === 'deleted' ? (
+                        // Deleted session options
+                        <button
+                          onClick={(e) => handleRestoreSession(e, session.guid)}
+                          className="w-full px-3 py-2 text-left text-sm text-green-400 hover:bg-gray-700 flex items-center gap-2"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                          </svg>
+                          Restore
+                        </button>
+                      ) : (
+                        // Active/Completed session options
+                        <>
+                          {session.tmux_active && (
+                            <button
+                              onClick={(e) => handleCompleteSession(e, session.guid)}
+                              className="w-full px-3 py-2 text-left text-sm text-yellow-400 hover:bg-gray-700 flex items-center gap-2"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                              Complete
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => handleDeleteSession(e, session.guid)}
+                            className="w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-gray-700 flex items-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+
                   <div className="text-sm text-gray-300 mt-1 truncate">
                     {session.email || 'No email'}
                   </div>

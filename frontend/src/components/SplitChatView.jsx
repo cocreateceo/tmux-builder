@@ -1,44 +1,30 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { useProgressSocket } from '../hooks/useProgressSocket';
-import apiService from '../services/api';
-import MessageList from './MessageList';
-import InputArea from './InputArea';
-import McpToolsLog from './McpToolsLog';
-import SessionSidebar from './SessionSidebar';
+import { useProgressSocket } from '../hooks/useProgressSocket.js';
+import apiService from '../services/api.js';
+import MessageList from './MessageList.jsx';
+import InputArea from './InputArea.jsx';
+import McpToolsLog from './McpToolsLog.jsx';
+import SessionSidebar from './SessionSidebar.jsx';
+
+function getStoredGuid() {
+  const stored = localStorage.getItem('tmux_builder_guid');
+  if (!stored || stored === 'null' || stored === 'undefined') {
+    return null;
+  }
+  return stored;
+}
 
 function SplitChatView() {
   const [messages, setMessages] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [guid, setGuid] = useState(() => {
-    const stored = localStorage.getItem('tmux_builder_guid');
-    // Handle edge cases where "null" or "undefined" might be stored as strings
-    if (!stored || stored === 'null' || stored === 'undefined') {
-      return null;
-    }
-    return stored;
-  });
+  const [guid, setGuid] = useState(getStoredGuid);
 
-  // Channel 2: MCP WebSocket (progress/tools log)
-  // NOTE: Loading state is controlled by HTTP request lifecycle in handleSendMessage,
-  // NOT by WebSocket events. This prevents init acks from blocking the UI.
+  // MCP WebSocket handlers for progress updates
+  // Loading state is controlled by HTTP request lifecycle, not WebSocket events
   const mcpHandlers = useMemo(() => ({
-    // Generic message handler - called for ALL messages
-    onMessage: (data) => {
-      console.log('[SplitChatView] Message received:', data.type, data.message);
-    },
-    onAck: () => {
-      // Don't set loading here - ack is informational only
-      // Loading state is managed by handleSendMessage HTTP lifecycle
-      console.log('[SplitChatView] Ack received (informational)');
-    },
-    onComplete: () => {
-      // Don't set loading here either - HTTP response handles it
-      console.log('[SplitChatView] Complete received');
-    },
     onSummary: (data) => {
-      // Add summary as assistant message - this is the main completion response
       if (data.message) {
         setMessages(prev => [...prev, {
           role: 'assistant',
@@ -49,20 +35,20 @@ function SplitChatView() {
       setLoading(false);
     },
     onDeployed: (data) => {
-      // Add deployed URL as assistant message
       if (data.message) {
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `🚀 Deployed: ${data.message}`,
+          content: `Deployed: ${data.message}`,
           timestamp: data.timestamp
         }]);
       }
     },
     onResponse: (data) => {
-      if (data.message || data.content) {
+      const content = data.message || data.content;
+      if (content) {
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: data.message || data.content,
+          content,
           timestamp: data.timestamp
         }]);
       }
@@ -84,46 +70,19 @@ function SplitChatView() {
 
   // Auto-resume session if GUID exists in localStorage
   useEffect(() => {
-    const resumeSession = async () => {
-      if (guid) {
-        try {
-          // Check if session is still valid by fetching history
-          const historyResponse = await apiService.getHistory(guid);
-          if (historyResponse && historyResponse.messages) {
-            setMessages(historyResponse.messages);
-            console.log('[SplitChatView] Restored', historyResponse.messages.length, 'messages');
-          }
-          console.log('[SplitChatView] Resumed session:', guid);
-        } catch (err) {
-          // Session doesn't exist or is invalid, clear stored GUID
-          console.log('[SplitChatView] Failed to resume session, clearing GUID');
-          localStorage.removeItem('tmux_builder_guid');
-          setGuid(null);
+    if (!guid) return;
+
+    apiService.getHistory(guid)
+      .then(historyResponse => {
+        if (historyResponse?.messages) {
+          setMessages(historyResponse.messages);
         }
-      }
-    };
-    resumeSession();
+      })
+      .catch(() => {
+        localStorage.removeItem('tmux_builder_guid');
+        setGuid(null);
+      });
   }, [guid]);
-
-  // Create session
-  const handleCreateSession = async () => {
-    setLoading(true);
-    setError(null);
-    clearActivityLog();
-
-    try {
-      const result = await apiService.createSession();
-      if (result.success && result.guid) {
-        localStorage.setItem('tmux_builder_guid', result.guid);
-        setGuid(result.guid);
-        setSessionReady(true);
-      }
-    } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Failed to create session');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Send message
   const handleSendMessage = useCallback(async (messageData) => {
@@ -162,7 +121,6 @@ function SplitChatView() {
       await apiService.clearSession();
       setMessages([]);
       clearActivityLog();
-      setSessionReady(false);
       setGuid(null);
       localStorage.removeItem('tmux_builder_guid');
     } catch (err) {

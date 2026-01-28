@@ -1,39 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-/**
- * MCP Progress WebSocket URL (Channel 2)
- * Connects to the MCP server for real-time progress updates from Claude CLI
- */
-const MCP_WS_URL = 'ws://localhost:8001';
+const MCP_WS_URL = 'ws://localhost:8082';
+const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_LOG_ENTRIES = 500;
+
+// Message types that should be logged to activity log
+const LOGGABLE_TYPES = new Set([
+  'ack', 'status', 'working', 'progress', 'found', 'phase',
+  'created', 'deployed', 'screenshot', 'test', 'summary', 'done', 'complete', 'error'
+]);
+
+function isValidGuid(guid) {
+  return guid && guid !== 'null' && guid !== 'undefined';
+}
 
 /**
- * Custom hook for receiving real-time progress updates from Claude CLI via MCP WebSocket.
+ * Hook for receiving real-time progress updates from Claude CLI via WebSocket.
  *
- * Dual-channel architecture:
- * - Channel 1 (useWebSocket): UI <-> Backend (chat request/response on port 8000)
- * - Channel 2 (useProgressSocket): UI <-> MCP Server (real-time progress on port 8001)
- *
- * Message format from notify.sh:
- * { type: "status", data: "message here", guid: "...", timestamp: "..." }
- *
- * Supported message types:
- * - ack: Claude acknowledged the prompt
- * - status: Status message update
- * - working: What Claude is currently working on
- * - progress: Progress percentage (0-100)
- * - found: Report findings
- * - phase: Current phase of work
- * - created: File created
- * - deployed: Deployed URL
- * - screenshot: Screenshot taken
- * - test: Test results
- * - done/complete: Task completed
- * - error: Error occurred
- * - Any custom type: Handled via onMessage callback
- *
- * @param {string} guid - Session GUID to subscribe to
- * @param {object} handlers - Event handlers
- * @returns {object} - { connected, progress, statusMessage, phase, activityLog, reconnect, resetProgress }
+ * Architecture:
+ * - HTTP API (port 8000): Chat request/response
+ * - WebSocket (port 8001): Real-time progress updates via notify.sh
  */
 export function useProgressSocket(guid, handlers = {}) {
   const [connected, setConnected] = useState(false);
@@ -48,101 +34,161 @@ export function useProgressSocket(guid, handlers = {}) {
   const isConnectingRef = useRef(false);
   const handlersRef = useRef(handlers);
   const guidRef = useRef(guid);
+  const idCounterRef = useRef(0);
 
-  const maxReconnectAttempts = 5;
+  useEffect(() => { handlersRef.current = handlers; }, [handlers]);
+  useEffect(() => { guidRef.current = guid; }, [guid]);
 
-  // Keep refs updated
-  useEffect(() => {
-    handlersRef.current = handlers;
-  }, [handlers]);
-
-  useEffect(() => {
-    guidRef.current = guid;
-  }, [guid]);
-
-  /**
-   * Normalize message from notify.sh format.
-   * notify.sh sends: { type, data, guid, timestamp }
-   * We normalize to: { type, message, data, guid, timestamp }
-   */
-  const normalizeMessage = (raw) => {
+  function normalizeMessage(raw) {
     return {
       type: raw.type || 'unknown',
-      // Use 'data' field as message content (notify.sh format)
       message: raw.message || raw.data || '',
-      // Keep original data for progress percentage parsing
       data: raw.data,
       guid: raw.guid,
       timestamp: raw.timestamp || new Date().toISOString(),
     };
-  };
+  }
 
-  // Counter for unique IDs (persists across renders)
-  const idCounterRef = useRef(0);
-
-  /**
-   * Add message to activity log
-   */
   const addToActivityLog = useCallback((msg) => {
     setActivityLog((prev) => {
       idCounterRef.current += 1;
-      const newLog = [...prev, {
+      const entry = {
         id: `${Date.now()}-${idCounterRef.current}-${Math.random().toString(36).slice(2, 9)}`,
         type: msg.type,
         message: msg.message,
         timestamp: msg.timestamp,
-      }];
-      // Keep last 500 messages
-      return newLog.slice(-500);
+      };
+      return [...prev, entry].slice(-MAX_LOG_ENTRIES);
     });
   }, []);
 
-  // Connect to MCP WebSocket
+  // Message type handlers - map each type to state updates and handler calls
+  const handleMessage = useCallback((rawData) => {
+    const data = normalizeMessage(rawData);
+
+    // Call generic onMessage handler for all messages
+    handlersRef.current.onMessage?.(data);
+
+    // Add to activity log if applicable
+    if (LOGGABLE_TYPES.has(data.type) || !['connected', 'history', 'pong'].includes(data.type)) {
+      addToActivityLog(data);
+    }
+
+    // Type-specific handling
+    const typeHandlers = {
+      ack: () => {
+        setPhase('processing');
+        setStatusMessage('Processing...');
+        handlersRef.current.onAck?.(data);
+      },
+      progress: () => {
+        const value = parseInt(data.data, 10) || 0;
+        setProgress(Math.min(100, Math.max(0, value)));
+        setPhase('processing');
+        handlersRef.current.onProgress?.(data);
+      },
+      status: () => {
+        setStatusMessage(data.message);
+        setPhase('processing');
+        handlersRef.current.onStatus?.(data);
+      },
+      working: () => {
+        setStatusMessage(data.message);
+        setPhase('working');
+        handlersRef.current.onWorking?.(data);
+      },
+      found: () => {
+        setStatusMessage(`Found: ${data.message}`);
+        handlersRef.current.onFound?.(data);
+      },
+      phase: () => {
+        setPhase(data.message || 'processing');
+        handlersRef.current.onPhase?.(data);
+      },
+      created: () => {
+        setStatusMessage(`Created: ${data.message}`);
+        handlersRef.current.onCreated?.(data);
+      },
+      deployed: () => {
+        setStatusMessage(`Deployed: ${data.message}`);
+        setPhase('deployed');
+        handlersRef.current.onDeployed?.(data);
+      },
+      screenshot: () => {
+        setStatusMessage(`Screenshot: ${data.message}`);
+        handlersRef.current.onScreenshot?.(data);
+      },
+      test: () => {
+        setStatusMessage(`Test: ${data.message}`);
+        handlersRef.current.onTest?.(data);
+      },
+      summary: () => {
+        setStatusMessage('Task completed');
+        setPhase('complete');
+        setProgress(100);
+        handlersRef.current.onSummary?.(data);
+      },
+      response: () => {
+        setPhase('complete');
+        setProgress(100);
+        handlersRef.current.onResponse?.(data);
+      },
+      done: () => {
+        setPhase('complete');
+        setProgress(100);
+        setStatusMessage('Complete');
+        handlersRef.current.onComplete?.(data);
+      },
+      complete: () => typeHandlers.done(),
+      completed: () => typeHandlers.done(),
+      error: () => {
+        setPhase('error');
+        setStatusMessage(data.message || 'An error occurred');
+        handlersRef.current.onError?.(data);
+      },
+      history: () => {
+        if (rawData.messages?.length) {
+          rawData.messages.forEach(msg => addToActivityLog(normalizeMessage(msg)));
+        }
+        handlersRef.current.onHistory?.(rawData);
+      },
+      tool_log: () => handlersRef.current.onToolLog?.(data),
+      connected: () => {},
+    };
+
+    const handler = typeHandlers[data.type];
+    if (handler) {
+      handler();
+    } else {
+      setStatusMessage(data.message);
+      handlersRef.current.onCustom?.(data);
+    }
+  }, [addToActivityLog]);
+
+  // Connect to WebSocket
   const connect = useCallback(() => {
     const currentGuid = guidRef.current;
+    if (!isValidGuid(currentGuid)) return;
 
-    // More defensive check - handle null, undefined, empty string, and string "null"/"undefined"
-    if (!currentGuid || currentGuid === 'null' || currentGuid === 'undefined') {
-      console.log('[MCP-WS] No valid GUID provided, skipping connection');
-      return;
-    }
-
-    if (isConnectingRef.current) {
-      console.log('[MCP-WS] Already connecting, skipping');
-      return;
-    }
-
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      console.log('[MCP-WS] Already connected');
-      return;
-    }
-
-    if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
-      console.log('[MCP-WS] Connection in progress, skipping');
-      return;
-    }
+    // Prevent duplicate connections
+    if (isConnectingRef.current) return;
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (wsRef.current?.readyState === WebSocket.CONNECTING) return;
 
     isConnectingRef.current = true;
 
     // Clean up existing connection
     if (wsRef.current) {
-      try {
-        wsRef.current.close(1000, 'Reconnecting');
-      } catch (e) {
-        // Ignore
-      }
+      try { wsRef.current.close(1000, 'Reconnecting'); } catch (e) {}
       wsRef.current = null;
     }
 
-    // Connect with guid in URL path
-    const wsUrl = `${MCP_WS_URL}/ws/${currentGuid}`;
-    console.log(`[MCP-WS] Connecting to ${wsUrl}...`);
-
-    const ws = new WebSocket(wsUrl);
+    console.log(`[MCP-WS] Connecting to ${MCP_WS_URL}/ws/${currentGuid}`);
+    const ws = new WebSocket(`${MCP_WS_URL}/ws/${currentGuid}`);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log('[MCP-WS] Connected to MCP progress server');
+      console.log('[MCP-WS] Connected');
       isConnectingRef.current = false;
       setConnected(true);
       reconnectAttempts.current = 0;
@@ -151,141 +197,16 @@ export function useProgressSocket(guid, handlers = {}) {
 
     ws.onmessage = (event) => {
       try {
-        const rawData = JSON.parse(event.data);
-        const data = normalizeMessage(rawData);
-
-        console.log('[MCP-WS] Received:', data.type, data);
-
-        // Always call onMessage for any message type (generic handler)
-        handlersRef.current.onMessage?.(data);
-
-        // Add to activity log for most message types
-        const logTypes = ['ack', 'status', 'working', 'progress', 'found', 'phase',
-                         'created', 'deployed', 'screenshot', 'test', 'summary', 'done', 'complete', 'error'];
-        if (logTypes.includes(data.type) || !['connected', 'history', 'pong'].includes(data.type)) {
-          addToActivityLog(data);
-        }
-
-        switch (data.type) {
-          case 'ack':
-            setPhase('processing');
-            setStatusMessage('Processing...');
-            handlersRef.current.onAck?.(data);
-            break;
-
-          case 'progress': {
-            // Parse progress from data field (notify.sh sends as string)
-            const progressValue = parseInt(data.data, 10) || 0;
-            setProgress(Math.min(100, Math.max(0, progressValue)));
-            setPhase('processing');
-            handlersRef.current.onProgress?.(data);
-            break;
-          }
-
-          case 'status':
-            setStatusMessage(data.message);
-            setPhase('processing');
-            handlersRef.current.onStatus?.(data);
-            break;
-
-          case 'working':
-            setStatusMessage(data.message);
-            setPhase('working');
-            handlersRef.current.onWorking?.(data);
-            break;
-
-          case 'found':
-            setStatusMessage(`Found: ${data.message}`);
-            handlersRef.current.onFound?.(data);
-            break;
-
-          case 'phase':
-            setPhase(data.message || 'processing');
-            handlersRef.current.onPhase?.(data);
-            break;
-
-          case 'created':
-            setStatusMessage(`Created: ${data.message}`);
-            handlersRef.current.onCreated?.(data);
-            break;
-
-          case 'deployed':
-            setStatusMessage(`Deployed: ${data.message}`);
-            setPhase('deployed');
-            handlersRef.current.onDeployed?.(data);
-            break;
-
-          case 'screenshot':
-            setStatusMessage(`Screenshot: ${data.message}`);
-            handlersRef.current.onScreenshot?.(data);
-            break;
-
-          case 'test':
-            setStatusMessage(`Test: ${data.message}`);
-            handlersRef.current.onTest?.(data);
-            break;
-
-          case 'summary':
-            setStatusMessage('Task completed');
-            setPhase('complete');
-            setProgress(100);
-            handlersRef.current.onSummary?.(data);
-            break;
-
-          case 'response':
-            setPhase('complete');
-            setProgress(100);
-            handlersRef.current.onResponse?.(data);
-            break;
-
-          case 'done':
-          case 'complete':
-          case 'completed':
-            setPhase('complete');
-            setProgress(100);
-            setStatusMessage('Complete');
-            handlersRef.current.onComplete?.(data);
-            break;
-
-          case 'error':
-            setPhase('error');
-            setStatusMessage(data.message || 'An error occurred');
-            handlersRef.current.onError?.(data);
-            break;
-
-          case 'connected':
-            console.log('[MCP-WS] Connection confirmed for GUID:', data.guid);
-            break;
-
-          case 'history':
-            // Handle message history from server (restores activity log on reconnect)
-            if (rawData.messages && Array.isArray(rawData.messages)) {
-              console.log('[MCP-WS] Restoring', rawData.messages.length, 'activity log entries');
-              rawData.messages.forEach((msg) => {
-                const normalized = normalizeMessage(msg);
-                addToActivityLog(normalized);
-              });
-            }
-            handlersRef.current.onHistory?.(rawData);
-            break;
-
-          case 'tool_log':
-            handlersRef.current.onToolLog?.(data);
-            break;
-
-          default:
-            // Generic handler for any custom message type
-            console.log('[MCP-WS] Custom message type:', data.type, data.message);
-            setStatusMessage(data.message);
-            handlersRef.current.onCustom?.(data);
-        }
+        const data = JSON.parse(event.data);
+        console.log('[MCP-WS] Received:', data.type, data.message || data.data || '');
+        handleMessage(data);
       } catch (err) {
         console.error('[MCP-WS] Failed to parse message:', err);
       }
     };
 
     ws.onclose = (event) => {
-      console.log('[MCP-WS] Disconnected:', event.code, event.reason);
+      console.log(`[MCP-WS] Disconnected (code: ${event.code})`);
       isConnectingRef.current = false;
       setConnected(false);
 
@@ -294,14 +215,10 @@ export function useProgressSocket(guid, handlers = {}) {
         wsRef.current = null;
 
         // Auto-reconnect with exponential backoff
-        if (event.code !== 1000 && reconnectAttempts.current < maxReconnectAttempts) {
+        if (event.code !== 1000 && reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000);
-          console.log(`[MCP-WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current + 1}/${maxReconnectAttempts})`);
-
-          if (reconnectTimeoutRef.current) {
-            clearTimeout(reconnectTimeoutRef.current);
-          }
-
+          console.log(`[MCP-WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+          if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttempts.current++;
             connect();
@@ -310,70 +227,49 @@ export function useProgressSocket(guid, handlers = {}) {
       }
     };
 
-    ws.onerror = (error) => {
-      console.error('[MCP-WS] Error:', error);
+    ws.onerror = (err) => {
+      console.error('[MCP-WS] Error:', err);
       isConnectingRef.current = false;
     };
-  }, [addToActivityLog]);
+  }, [handleMessage]);
 
-  // Disconnect
   const disconnect = useCallback(() => {
-    console.log('[MCP-WS] Disconnecting...');
-
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
-
     if (wsRef.current) {
-      try {
-        wsRef.current.close(1000, 'User disconnect');
-      } catch (e) {
-        // Ignore
-      }
+      try { wsRef.current.close(1000, 'User disconnect'); } catch (e) {}
       wsRef.current = null;
     }
-
     isConnectingRef.current = false;
     setConnected(false);
   }, []);
 
-  // Manual reconnect
   const reconnect = useCallback(() => {
     reconnectAttempts.current = 0;
     disconnect();
-    setTimeout(() => connect(), 100);
+    setTimeout(connect, 100);
   }, [connect, disconnect]);
 
-  // Reset progress state (call when starting new message)
   const resetProgress = useCallback(() => {
     setProgress(0);
     setStatusMessage('');
     setPhase('idle');
   }, []);
 
-  // Clear activity log
-  const clearActivityLog = useCallback(() => {
-    setActivityLog([]);
-  }, []);
+  const clearActivityLog = useCallback(() => setActivityLog([]), []);
 
-  // Connect when guid is set
+  // Connect when guid changes
   useEffect(() => {
-    // Defensive check - handle null, undefined, empty string, and string "null"/"undefined"
-    if (!guid || guid === 'null' || guid === 'undefined') {
-      console.log('[MCP-WS] No valid GUID, skipping connection');
-      return;
-    }
+    if (!isValidGuid(guid)) return;
 
-    const timer = setTimeout(() => {
-      connect();
-    }, 200); // Slight delay to ensure Channel 1 connects first
-
+    const timer = setTimeout(connect, 200);
     return () => {
       clearTimeout(timer);
       disconnect();
     };
-  }, [guid]);
+  }, [guid, connect, disconnect]);
 
   return {
     connected,

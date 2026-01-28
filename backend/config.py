@@ -109,7 +109,7 @@ SESSION_PREFIX = TMUX_SESSION_PREFIX
 # ==============================================
 
 # Progress WebSocket port (for real-time updates to UI)
-PROGRESS_WS_PORT = int(os.getenv('PROGRESS_WS_PORT', '8001'))
+PROGRESS_WS_PORT = int(os.getenv('PROGRESS_WS_PORT', '8082'))
 
 # Protocol timeouts
 ACK_TIMEOUT = 30  # seconds to wait for ack from Claude

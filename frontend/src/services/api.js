@@ -69,6 +69,24 @@ export const apiService = {
     const response = await api.get(`/api/admin/sessions/${guid}`);
     return response.data;
   },
+
+  // Delete a session (moves to deleted folder)
+  deleteSession: async (guid) => {
+    const response = await api.delete(`/api/admin/sessions/${guid}`);
+    return response.data;
+  },
+
+  // Complete a session (kill tmux but keep in active)
+  completeSession: async (guid) => {
+    const response = await api.post(`/api/admin/sessions/${guid}/complete`);
+    return response.data;
+  },
+
+  // Restore a deleted session
+  restoreSession: async (guid) => {
+    const response = await api.post(`/api/admin/sessions/${guid}/restore`);
+    return response.data;
+  },
 };
 
 export default apiService;

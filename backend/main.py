@@ -1,25 +1,27 @@
 """FastAPI backend for tmux-builder chat interface with WebSocket support."""
 
-import logging
-import os
-import json
 import asyncio
 import hashlib
+import json
+import logging
+import os
+import shutil
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List, Dict
-from datetime import datetime, timedelta
-from pathlib import Path
 
-from config import API_HOST, API_PORT, DEFAULT_USER, ACTIVE_SESSIONS_DIR, setup_logging
-from session_controller import SessionController
 from background_worker import BackgroundWorker
+from config import ACTIVE_SESSIONS_DIR, DELETED_SESSIONS_DIR, API_HOST, API_PORT, DEFAULT_USER, SESSION_PREFIX, setup_logging
 from guid_generator import generate_guid
+from session_controller import SessionController
+from session_initializer import SessionInitializer
+from tmux_helper import TmuxHelper
 from ws_server import start_progress_server, stop_progress_server
 
-# Configure centralized logging (console + file)
 setup_logging()
 logger = logging.getLogger(__name__)
 
@@ -27,17 +29,13 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler for startup and shutdown."""
-    # Startup
-    logger.info("Starting Progress WebSocket server on port 8001...")
-    await start_progress_server(port=8001)
-    logger.info("Progress WebSocket server started!")
-
+    logger.info("Starting Progress WebSocket server on port 8082...")
+    await start_progress_server(port=8082)
+    logger.info("Progress WebSocket server started")
     yield
-
-    # Shutdown
     logger.info("Stopping Progress WebSocket server...")
     await stop_progress_server()
-    logger.info("Progress WebSocket server stopped!")
+    logger.info("Progress WebSocket server stopped")
 
 
 app = FastAPI(title="Tmux Builder API", version="1.0.0", lifespan=lifespan)
@@ -56,118 +54,67 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global session controller (simplified for demo)
+# Global state
 session_controller: Optional[SessionController] = None
-
-# Initialize background worker
+session_controllers: Dict[str, SessionController] = {}  # Cache for multiple sessions
 background_worker = BackgroundWorker()
 
 
-# ============================================================================
-# WebSocket Connection Manager
-# ============================================================================
+def get_or_create_session_controller(guid: str) -> Optional[SessionController]:
+    """Get cached SessionController or create one if session exists."""
+    if guid in session_controllers:
+        return session_controllers[guid]
+    session_path = ACTIVE_SESSIONS_DIR / guid
+    if session_path.exists():
+        controller = SessionController(guid=guid)
+        session_controllers[guid] = controller
+        logger.info(f"Created SessionController for existing session: {guid}")
+        return controller
+    return None
 
-class ConnectionManager:
-    """Manages WebSocket connections per session GUID."""
 
-    def __init__(self):
-        # Map: guid -> list of WebSocket connections
-        self.active_connections: Dict[str, List[WebSocket]] = {}
-        # Map: guid -> SessionController
-        self.session_controllers: Dict[str, SessionController] = {}
-        # Map: guid -> last known status (to detect changes)
-        self.last_status: Dict[str, Dict] = {}
-
-    async def connect(self, websocket: WebSocket, guid: str):
-        """Accept WebSocket connection and register it."""
-        await websocket.accept()
-        if guid not in self.active_connections:
-            self.active_connections[guid] = []
-        self.active_connections[guid].append(websocket)
-        logger.info(f"WebSocket connected for GUID: {guid} (total: {len(self.active_connections[guid])})")
-
-    def disconnect(self, websocket: WebSocket, guid: str):
-        """Remove WebSocket connection."""
-        if guid in self.active_connections:
-            if websocket in self.active_connections[guid]:
-                self.active_connections[guid].remove(websocket)
-            if not self.active_connections[guid]:
-                del self.active_connections[guid]
-        logger.info(f"WebSocket disconnected for GUID: {guid}")
-
-    async def send_to_guid(self, guid: str, message: dict):
-        """Send message to all connections for a GUID."""
-        if guid in self.active_connections:
-            dead_connections = []
-            for connection in self.active_connections[guid]:
-                try:
-                    await connection.send_json(message)
-                except Exception as e:
-                    logger.warning(f"Failed to send to WebSocket: {e}")
-                    dead_connections.append(connection)
-            # Clean up dead connections
-            for conn in dead_connections:
-                self.active_connections[guid].remove(conn)
-
-    def get_session_controller(self, guid: str) -> Optional[SessionController]:
-        """Get or create SessionController for GUID."""
-        if guid not in self.session_controllers:
-            # Check if session exists
-            session_path = ACTIVE_SESSIONS_DIR / guid
-            if session_path.exists():
-                self.session_controllers[guid] = SessionController(guid=guid)
-                logger.info(f"Created SessionController for existing session: {guid}")
-            else:
-                return None
-        return self.session_controllers[guid]
-
-    def set_session_controller(self, guid: str, controller: SessionController):
-        """Store SessionController for GUID."""
-        self.session_controllers[guid] = controller
-
-    def get_status(self, guid: str) -> Dict:
-        """Read current status from status.json and markers."""
+def read_session_status(guid: str) -> Dict:
+    """Read current status from status.json."""
+    session_path = ACTIVE_SESSIONS_DIR / guid
+    status_file = session_path / "status.json"
+    status = {"state": "unknown", "progress": 0, "message": "Checking status..."}
+    if status_file.exists():
         try:
-            session_path = ACTIVE_SESSIONS_DIR / guid
-            status_file = session_path / "status.json"
-            markers_path = session_path / "markers"
-
-            status = {
-                "state": "unknown",
-                "progress": 0,
-                "message": "Checking status...",
-                "markers": {}
-            }
-
-            # Read status.json
-            if status_file.exists():
-                try:
-                    status.update(json.loads(status_file.read_text()))
-                except json.JSONDecodeError:
-                    pass
-
-            # Check markers
-            if markers_path.exists():
-                for marker in ["ready.marker", "ack.marker", "completed.marker"]:
-                    marker_file = markers_path / marker
-                    status["markers"][marker] = marker_file.exists()
-
-            return status
-
-        except Exception as e:
-            logger.error(f"Error reading status: {e}")
-            return {"state": "error", "message": str(e)}
-
-    def get_chat_history(self, guid: str) -> List[Dict]:
-        """Read chat history for GUID."""
-        controller = self.get_session_controller(guid)
-        if controller:
-            return controller.get_chat_history()
-        return []
+            status.update(json.loads(status_file.read_text()))
+        except json.JSONDecodeError:
+            pass
+    return status
 
 
-# Global connection manager
-ws_manager = ConnectionManager()
+def get_chat_history(guid: str) -> List[Dict]:
+    """Read chat history for GUID."""
+    controller = get_or_create_session_controller(guid)
+    return controller.get_chat_history() if controller else []
+
+
+def generate_unique_guid(seed_prefix: str) -> str:
+    """Generate a unique GUID using seed prefix, timestamp, and UUID."""
+    import time
+    import uuid
+    unique_seed = f"{seed_prefix}:{time.time()}:{uuid.uuid4()}"
+    return hashlib.sha256(unique_seed.encode('utf-8')).hexdigest()
+
+
+async def initialize_new_session(
+    guid: str,
+    email: str = "",
+    phone: str = "0000000000"
+) -> Dict:
+    """Initialize a new session and return result with SessionController."""
+    global session_controller
+    initializer = SessionInitializer()
+    result = await initializer.initialize_session(guid=guid, email=email, phone=phone)
+    if result.get('success'):
+        controller = SessionController(guid=guid)
+        session_controllers[guid] = controller
+        session_controller = controller
+        result['controller'] = controller
+    return result
 
 
 # Request/Response models
@@ -265,67 +212,20 @@ async def register_user(request: RegistrationRequest):
 
 
 @app.get("/api/session/{guid}/status")
-async def get_session_status(guid: str):
-    """
-    Get current status of session initialization/build.
+async def get_session_status_endpoint(guid: str):
+    """Get current status of session initialization/build."""
+    logger.info(f"=== STATUS CHECK: {guid[:12]}... ===")
 
-    Returns job status from background worker plus any status.json updates.
-    """
-    try:
-        logger.info(f"=== STATUS CHECK: {guid} ===")
+    job_status = background_worker.get_job_status(guid)
+    if job_status is None:
+        return {"success": False, "error": "Session not found", "guid": guid}
 
-        # Get job status from background worker
-        job_status = background_worker.get_job_status(guid)
+    # Merge with status.json if session is ready
+    if job_status['status'] == 'ready':
+        detailed_status = read_session_status(guid)
+        return {"success": True, "guid": guid, **job_status, **detailed_status}
 
-        if job_status is None:
-            logger.warning(f"Unknown GUID: {guid}")
-            return {
-                "success": False,
-                "error": "Session not found",
-                "guid": guid
-            }
-
-        # Try to read status.json if session is ready
-        if job_status['status'] == 'ready':
-            try:
-                from session_initializer import SessionInitializer
-                session_path = SessionInitializer.get_session_path(guid)
-                status_file = session_path / "status.json"
-
-                if status_file.exists():
-                    import json
-                    detailed_status = json.loads(status_file.read_text())
-
-                    # Merge job status with detailed status
-                    response = {
-                        "success": True,
-                        "guid": guid,
-                        **job_status,
-                        **detailed_status
-                    }
-
-                    logger.info(f"Detailed status: {detailed_status.get('status')} - {detailed_status.get('message')}")
-                    return response
-            except Exception as e:
-                logger.warning(f"Could not read status.json: {e}")
-
-        # Return basic job status
-        response = {
-            "success": True,
-            "guid": guid,
-            **job_status
-        }
-
-        logger.info(f"Status: {job_status['status']} ({job_status.get('progress', 0)}%)")
-        return response
-
-    except Exception as e:
-        logger.exception(f"Status check failed: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "guid": guid
-        }
+    return {"success": True, "guid": guid, **job_status}
 
 
 @app.post("/api/session/create")
@@ -335,52 +235,29 @@ async def create_session():
 
     This performs a quick health check to verify Claude CLI is alive.
     The full autonomous prompt is sent with the first user message.
-
-    For the full GUID-based flow, use /api/register instead.
-    This endpoint creates a UNIQUE session for each request.
     """
-    global session_controller
-
     logger.info("=== CREATE SESSION REQUEST ===")
-    logger.info(f"User: {DEFAULT_USER}")
+    new_guid = generate_unique_guid(f"{DEFAULT_USER}@demo.local")
+    logger.info(f"New unique GUID: {new_guid}")
 
-    try:
-        # Generate a unique GUID using UUID + timestamp for fresh sessions
-        import uuid
-        import time
-        unique_seed = f"{DEFAULT_USER}@demo.local:{time.time()}:{uuid.uuid4()}"
-        demo_guid = hashlib.sha256(unique_seed.encode('utf-8')).hexdigest()
-        logger.info(f"New unique GUID: {demo_guid}")
+    result = await initialize_new_session(
+        guid=new_guid,
+        email=f"{DEFAULT_USER}@demo.local"
+    )
 
-        # Use SessionInitializer for simple health check
-        from session_initializer import SessionInitializer
-        initializer = SessionInitializer()
+    if result.get('success'):
+        controller = result['controller']
+        logger.info(f"Session created: {controller.session_name}")
+        return {
+            "success": True,
+            "message": "Session ready - send your first message to begin",
+            "session_name": controller.session_name,
+            "guid": new_guid
+        }
 
-        logger.info("Initializing session (simple health check)...")
-        result = await initializer.initialize_session(
-            guid=demo_guid,
-            email=f"{DEFAULT_USER}@demo.local",
-            phone="0000000000"
-        )
-
-        if result.get('success'):
-            # Create SessionController for message handling
-            session_controller = SessionController(guid=demo_guid)
-            logger.info(f"✓ Session created successfully: {session_controller.session_name}")
-            return {
-                "success": True,
-                "message": "Session ready - send your first message to begin",
-                "session_name": session_controller.session_name,
-                "guid": demo_guid
-            }
-        else:
-            error_msg = result.get('error', 'Unknown error')
-            logger.error(f"Failed to initialize session: {error_msg}")
-            raise HTTPException(status_code=500, detail=error_msg)
-
-    except Exception as e:
-        logger.error(f"Error creating session: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    error_msg = result.get('error', 'Unknown error')
+    logger.error(f"Failed to initialize session: {error_msg}")
+    raise HTTPException(status_code=500, detail=error_msg)
 
 
 # ==============================================
@@ -416,51 +293,43 @@ async def list_sessions(filter: str = "all"):
     """
     List all sessions with metadata and tmux status.
 
-    Filter options:
-    - all: All sessions
-    - active: Only sessions with active tmux
-    - completed: Only sessions without active tmux
+    Filter: all, active (with tmux), completed (without tmux), deleted
     """
-    from tmux_helper import TmuxHelper
-    from config import SESSION_PREFIX
-
     logger.info(f"=== ADMIN LIST SESSIONS (filter: {filter}) ===")
+
+    # Handle deleted filter - scan deleted folder instead
+    if filter == "deleted":
+        if not DELETED_SESSIONS_DIR.exists():
+            return {"sessions": [], "total": 0, "filter": filter}
+        sessions_dir = DELETED_SESSIONS_DIR
+        is_deleted_filter = True
+    else:
+        if not ACTIVE_SESSIONS_DIR.exists():
+            return {"sessions": [], "total": 0, "filter": filter}
+        sessions_dir = ACTIVE_SESSIONS_DIR
+        is_deleted_filter = False
+
+    # Get active tmux session GUIDs
+    active_tmux_guids = set()
+    for session_name in TmuxHelper.list_sessions():
+        if session_name.startswith(SESSION_PREFIX):
+            active_tmux_guids.add(session_name.replace(f"{SESSION_PREFIX}_", ""))
 
     sessions = []
 
-    if not ACTIVE_SESSIONS_DIR.exists():
-        return {"sessions": [], "total": 0, "filter": filter}
-
-    # Get list of active tmux sessions
-    active_tmux_sessions = set()
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["tmux", "list-sessions", "-F", "#{session_name}"],
-            capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            for line in result.stdout.strip().split('\n'):
-                if line.startswith(SESSION_PREFIX):
-                    # Extract GUID from session name
-                    guid = line.replace(f"{SESSION_PREFIX}_", "")
-                    active_tmux_sessions.add(guid)
-    except Exception as e:
-        logger.warning(f"Could not list tmux sessions: {e}")
-
-    # Iterate through session folders
-    for session_dir in ACTIVE_SESSIONS_DIR.iterdir():
+    for session_dir in sessions_dir.iterdir():
         if not session_dir.is_dir():
             continue
 
         guid = session_dir.name
-        tmux_active = guid in active_tmux_sessions
+        tmux_active = guid in active_tmux_guids
 
-        # Apply filter
-        if filter == "active" and not tmux_active:
-            continue
-        if filter == "completed" and tmux_active:
-            continue
+        # Apply filter (skip for deleted filter - we already selected the right folder)
+        if not is_deleted_filter:
+            if filter == "active" and not tmux_active:
+                continue
+            if filter == "completed" and tmux_active:
+                continue
 
         # Read session metadata
         status_file = session_dir / "status.json"
@@ -525,80 +394,159 @@ async def list_sessions(filter: str = "all"):
 
 @app.post("/api/admin/sessions")
 async def create_admin_session(request: AdminSessionCreate):
+    """Create a new session with custom email/phone/initial request."""
+    logger.info(f"=== ADMIN CREATE SESSION: {request.email} ===")
+
+    new_guid = generate_unique_guid(request.email)
+    result = await initialize_new_session(
+        guid=new_guid,
+        email=request.email,
+        phone=request.phone or "0000000000"
+    )
+
+    if not result.get('success'):
+        error_msg = result.get('error', 'Unknown error')
+        logger.error(f"Failed to create admin session: {error_msg}")
+        raise HTTPException(status_code=500, detail=error_msg)
+
+    controller = result['controller']
+    logger.info(f"Admin session created: {controller.session_name}")
+
+    # Save initial request to status.json if provided
+    if request.initial_request:
+        status_file = ACTIVE_SESSIONS_DIR / new_guid / "status.json"
+        if status_file.exists():
+            status_data = json.loads(status_file.read_text())
+            status_data["user_request"] = request.initial_request
+            status_file.write_text(json.dumps(status_data, indent=2))
+
+    return {
+        "success": True,
+        "message": "Session created successfully",
+        "guid": new_guid,
+        "email": request.email
+    }
+
+
+@app.delete("/api/admin/sessions/{guid}")
+async def delete_session(guid: str):
     """
-    Create a new session with custom email/phone/initial request.
-
-    This allows admin to create sessions with specific metadata.
+    Delete a session by moving it to the deleted folder.
+    Also kills the tmux session if active.
     """
-    global session_controller
+    logger.info(f"=== ADMIN DELETE SESSION: {guid[:12]}... ===")
 
-    logger.info("=== ADMIN CREATE SESSION ===")
-    logger.info(f"Email: {request.email}")
-    logger.info(f"Phone: {request.phone}")
-    logger.info(f"Initial request: {request.initial_request[:50] if request.initial_request else '(none)'}...")
+    source_path = ACTIVE_SESSIONS_DIR / guid
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
 
+    # Kill tmux session if active
+    session_name = f"{SESSION_PREFIX}_{guid}"
     try:
-        # Generate unique GUID
-        import uuid
-        import time
-        unique_seed = f"{request.email}:{time.time()}:{uuid.uuid4()}"
-        new_guid = hashlib.sha256(unique_seed.encode('utf-8')).hexdigest()
-        logger.info(f"Generated GUID: {new_guid}")
+        if TmuxHelper.session_exists(session_name):
+            TmuxHelper.kill_session(session_name)
+            logger.info(f"Killed tmux session: {session_name}")
+    except Exception as e:
+        logger.warning(f"Could not kill tmux session: {e}")
 
-        # Initialize session
-        from session_initializer import SessionInitializer
-        initializer = SessionInitializer()
+    # Remove from session_controllers cache if present
+    if guid in session_controllers:
+        del session_controllers[guid]
+        logger.info(f"Removed from session_controllers cache")
 
-        result = await initializer.initialize_session(
-            guid=new_guid,
-            email=request.email,
-            phone=request.phone or "0000000000"
-        )
+    # Move to deleted folder
+    dest_path = DELETED_SESSIONS_DIR / guid
+    try:
+        if dest_path.exists():
+            # If already exists in deleted, remove it first
+            shutil.rmtree(dest_path)
+        shutil.move(str(source_path), str(dest_path))
+        logger.info(f"Moved session to deleted: {dest_path}")
+    except Exception as e:
+        logger.error(f"Failed to move session: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete session: {e}")
 
-        if result.get('success'):
-            # Create SessionController
-            session_controller = SessionController(guid=new_guid)
-            logger.info(f"✓ Admin session created: {session_controller.session_name}")
+    return {
+        "success": True,
+        "message": "Session deleted successfully",
+        "guid": guid
+    }
 
-            # If initial request provided, save it to status.json
-            if request.initial_request:
-                status_file = ACTIVE_SESSIONS_DIR / new_guid / "status.json"
-                if status_file.exists():
-                    status_data = json.loads(status_file.read_text())
-                    status_data["user_request"] = request.initial_request
-                    status_file.write_text(json.dumps(status_data, indent=2))
 
-            return {
-                "success": True,
-                "message": "Session created successfully",
-                "guid": new_guid,
-                "email": request.email
-            }
-        else:
-            error_msg = result.get('error', 'Unknown error')
-            logger.error(f"Failed to create admin session: {error_msg}")
-            raise HTTPException(status_code=500, detail=error_msg)
+@app.post("/api/admin/sessions/{guid}/complete")
+async def complete_session(guid: str):
+    """
+    Mark a session as completed by killing its tmux session.
+    Session folder remains in active directory.
+    """
+    logger.info(f"=== ADMIN COMPLETE SESSION: {guid[:12]}... ===")
 
+    session_path = ACTIVE_SESSIONS_DIR / guid
+    if not session_path.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Kill tmux session if active
+    session_name = f"{SESSION_PREFIX}_{guid}"
+    was_active = False
+    try:
+        if TmuxHelper.session_exists(session_name):
+            TmuxHelper.kill_session(session_name)
+            was_active = True
+            logger.info(f"Killed tmux session: {session_name}")
+    except Exception as e:
+        logger.warning(f"Could not kill tmux session: {e}")
+
+    # Remove from session_controllers cache if present
+    if guid in session_controllers:
+        del session_controllers[guid]
+
+    return {
+        "success": True,
+        "message": "Session completed" if was_active else "Session was already completed",
+        "guid": guid,
+        "was_active": was_active
+    }
+
+
+@app.post("/api/admin/sessions/{guid}/restore")
+async def restore_session(guid: str):
+    """
+    Restore a deleted session by moving it back to the active folder.
+    """
+    logger.info(f"=== ADMIN RESTORE SESSION: {guid[:12]}... ===")
+
+    source_path = DELETED_SESSIONS_DIR / guid
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail="Deleted session not found")
+
+    dest_path = ACTIVE_SESSIONS_DIR / guid
+    try:
+        if dest_path.exists():
+            raise HTTPException(status_code=409, detail="Session already exists in active folder")
+        shutil.move(str(source_path), str(dest_path))
+        logger.info(f"Restored session to active: {dest_path}")
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error creating admin session: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to restore session: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to restore session: {e}")
+
+    return {
+        "success": True,
+        "message": "Session restored successfully",
+        "guid": guid
+    }
 
 
 @app.get("/api/admin/sessions/{guid}")
 async def get_session_details(guid: str):
     """Get detailed information about a specific session."""
-    from tmux_helper import TmuxHelper
-    from config import SESSION_PREFIX
-
     logger.info(f"=== ADMIN GET SESSION DETAILS: {guid[:12]}... ===")
 
     session_dir = ACTIVE_SESSIONS_DIR / guid
     if not session_dir.exists():
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Check tmux status
     session_name = f"{SESSION_PREFIX}_{guid}"
     tmux_active = TmuxHelper.session_exists(session_name)
 
@@ -662,82 +610,44 @@ async def chat(chat_message: ChatMessage):
     """Send a message to Claude and get response."""
     global session_controller
 
-    logger.info("=== CHAT MESSAGE ===")
-    logger.info(f"Message: {chat_message.message[:100]}...")
-    logger.info(f"GUID received: {chat_message.guid or '(none)'}")
+    logger.info(f"=== CHAT: {chat_message.message[:50]}... (GUID: {chat_message.guid or 'none'}) ===")
 
-    # Auto-recover or auto-create session if needed
-    # Also handle case where session_controller exists but for a different GUID
-    requested_guid = chat_message.guid
-    needs_session_switch = (
-        session_controller is None or
-        (requested_guid and session_controller.guid != requested_guid)
-    )
+    # Determine target GUID
+    target_guid = chat_message.guid
+    if not target_guid:
+        target_guid = generate_unique_guid(f"{DEFAULT_USER}@demo.local")
+        logger.info(f"Generated new GUID: {target_guid}")
 
-    if needs_session_switch:
-        from tmux_helper import TmuxHelper
-        from session_initializer import SessionInitializer
-        from config import SESSION_PREFIX
-
-        target_guid = requested_guid
-
-        # If no GUID provided, generate a new one
-        if not target_guid:
-            import uuid
-            import time
-            unique_seed = f"{DEFAULT_USER}@demo.local:{time.time()}:{uuid.uuid4()}"
-            target_guid = hashlib.sha256(unique_seed.encode('utf-8')).hexdigest()
-            logger.info(f"Generated new GUID: {target_guid}")
-        else:
-            logger.info(f"Switching to session with GUID: {target_guid}")
-
+    # Check if we need to switch/create session
+    needs_switch = session_controller is None or session_controller.guid != target_guid
+    if needs_switch:
         session_name = f"{SESSION_PREFIX}_{target_guid}"
-
         if TmuxHelper.session_exists(session_name):
-            # Re-attach to existing tmux session
             logger.info(f"Re-attaching to existing session: {session_name}")
             session_controller = SessionController(guid=target_guid)
+            session_controllers[target_guid] = session_controller
         else:
-            # Auto-create new session
             logger.info(f"Auto-creating new session: {session_name}")
-            initializer = SessionInitializer()
-            result = await initializer.initialize_session(
+            result = await initialize_new_session(
                 guid=target_guid,
-                email=f"{DEFAULT_USER}@demo.local",
-                phone="0000000000"
+                email=f"{DEFAULT_USER}@demo.local"
             )
-            if result.get('success'):
-                session_controller = SessionController(guid=target_guid)
-                logger.info(f"Session auto-created successfully")
-            else:
-                logger.error(f"Failed to auto-create session: {result.get('error')}")
+            if not result.get('success'):
                 raise HTTPException(status_code=500, detail="Failed to create session")
 
     if not session_controller.is_active():
-        logger.error("Session is not active")
         raise HTTPException(status_code=400, detail="Session is not active")
 
-    try:
-        # Send message and wait for response (use async version)
-        logger.info("Sending message to Claude...")
-        response = await session_controller.send_message_async(chat_message.message)
-        logger.info(f"Got response: {response[:100] if response else 'None'}...")
+    response = await session_controller.send_message_async(chat_message.message)
+    if response is None:
+        raise HTTPException(status_code=500, detail="Failed to get response")
 
-        if response is None:
-            logger.error("Failed to get response")
-            raise HTTPException(status_code=500, detail="Failed to get response")
-
-        logger.info("✓ Response sent successfully")
-        return ChatResponse(
-            success=True,
-            response=response,
-            timestamp=datetime.utcnow().isoformat() + "Z",
-            guid=session_controller.guid  # Return GUID for frontend to store
-        )
-
-    except Exception as e:
-        logger.error(f"Error in chat: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    return ChatResponse(
+        success=True,
+        response=response,
+        timestamp=datetime.utcnow().isoformat() + "Z",
+        guid=session_controller.guid
+    )
 
 
 @app.get("/api/history")
@@ -791,298 +701,6 @@ async def clear_session():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============================================================================
-# WebSocket Endpoints
-# ============================================================================
-
-@app.websocket("/ws/{guid}")
-async def websocket_endpoint(websocket: WebSocket, guid: str):
-    """
-    WebSocket endpoint for real-time chat communication.
-
-    Messages from client:
-    - {"type": "send_message", "content": "..."} - Send a chat message
-    - {"type": "get_status"} - Request current status
-    - {"type": "get_history"} - Request chat history
-    - {"type": "ping"} - Keepalive ping
-
-    Messages to client:
-    - {"type": "connected", "guid": "...", "status": {...}} - Connection established
-    - {"type": "status", ...} - Status update
-    - {"type": "history", "messages": [...]} - Chat history
-    - {"type": "response", "content": "...", "complete": true/false} - Message response
-    - {"type": "error", "message": "..."} - Error message
-    - {"type": "pong"} - Response to ping
-    """
-    await ws_manager.connect(websocket, guid)
-    status_task = None
-
-    try:
-        # Send initial status on connect
-        loop = asyncio.get_event_loop()
-        status = await loop.run_in_executor(None, ws_manager.get_status, guid)
-        history = await loop.run_in_executor(None, ws_manager.get_chat_history, guid)
-
-        await websocket.send_json({
-            "type": "connected",
-            "guid": guid,
-            "status": status,
-            "history": history
-        })
-
-        # Start background status polling task
-        status_task = asyncio.create_task(
-            poll_status_updates(websocket, guid)
-        )
-
-        # Main message loop
-        while True:
-            try:
-                # Use receive() instead of receive_json() for better error handling
-                message = await websocket.receive()
-
-                if message["type"] == "websocket.disconnect":
-                    logger.info(f"WebSocket disconnect received: {guid}")
-                    break
-
-                if message["type"] == "websocket.receive":
-                    if "text" in message:
-                        try:
-                            data = json.loads(message["text"])
-                            await handle_ws_message(websocket, guid, data)
-                        except json.JSONDecodeError as e:
-                            logger.warning(f"Invalid JSON from client: {e}")
-                            await websocket.send_json({
-                                "type": "error",
-                                "message": "Invalid JSON"
-                            })
-
-            except WebSocketDisconnect:
-                logger.info(f"WebSocket disconnected: {guid}")
-                break
-            except Exception as e:
-                logger.error(f"Error in message loop: {e}")
-                break
-
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected during setup: {guid}")
-    except Exception as e:
-        logger.error(f"WebSocket error for {guid}: {e}", exc_info=True)
-        try:
-            await websocket.send_json({
-                "type": "error",
-                "message": str(e)
-            })
-        except:
-            pass
-    finally:
-        # Clean up status task
-        if status_task:
-            status_task.cancel()
-            try:
-                await status_task
-            except asyncio.CancelledError:
-                pass
-        ws_manager.disconnect(websocket, guid)
-
-
-async def poll_status_updates(websocket: WebSocket, guid: str):
-    """Background task to poll status.json and send updates."""
-    last_status_json = None
-
-    while True:
-        try:
-            await asyncio.sleep(2)  # Poll every 2 seconds (reduced frequency)
-
-            # Run synchronous file I/O in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            current_status = await loop.run_in_executor(
-                None,
-                ws_manager.get_status,
-                guid
-            )
-
-            # Compare as JSON string to detect actual changes
-            current_status_json = json.dumps(current_status, sort_keys=True)
-            if current_status_json != last_status_json:
-                try:
-                    await websocket.send_json({
-                        "type": "status",
-                        **current_status
-                    })
-                    last_status_json = current_status_json
-                except Exception as send_error:
-                    # WebSocket might be closed, exit gracefully
-                    logger.debug(f"Status send failed (connection may be closed): {send_error}")
-                    break
-
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.debug(f"Status poll error: {e}")
-            break
-
-
-async def handle_ws_message(websocket: WebSocket, guid: str, data: dict):
-    """Handle incoming WebSocket message."""
-    global session_controller
-
-    msg_type = data.get("type")
-    logger.info(f"WebSocket message from {guid}: {msg_type}")
-
-    if msg_type == "send_message":
-        content = data.get("content", "").strip()
-        if not content:
-            await websocket.send_json({
-                "type": "error",
-                "message": "Empty message"
-            })
-            return
-
-        # Get or create session controller
-        controller = ws_manager.get_session_controller(guid)
-        if not controller:
-            # Try to create session first
-            await websocket.send_json({
-                "type": "error",
-                "message": "No session found. Please create a session first."
-            })
-            return
-
-        # Also update global session_controller for backwards compatibility
-        session_controller = controller
-
-        # Send acknowledgment that we're processing
-        await websocket.send_json({
-            "type": "status",
-            "state": "processing",
-            "progress": 10,
-            "message": "Processing your message..."
-        })
-
-        # Process message in background to avoid blocking
-        asyncio.create_task(
-            process_message_async(websocket, guid, controller, content)
-        )
-
-    elif msg_type == "get_status":
-        status = ws_manager.get_status(guid)
-        await websocket.send_json({
-            "type": "status",
-            **status
-        })
-
-    elif msg_type == "get_history":
-        history = ws_manager.get_chat_history(guid)
-        await websocket.send_json({
-            "type": "history",
-            "messages": history
-        })
-
-    elif msg_type == "create_session":
-        # Create session via WebSocket
-        await create_session_ws(websocket, guid)
-
-    elif msg_type == "ping":
-        # Keepalive ping
-        await websocket.send_json({"type": "pong"})
-
-    else:
-        await websocket.send_json({
-            "type": "error",
-            "message": f"Unknown message type: {msg_type}"
-        })
-
-
-async def process_message_async(
-    websocket: WebSocket,
-    guid: str,
-    controller: SessionController,
-    content: str
-):
-    """Process a chat message asynchronously."""
-    try:
-        # Use async version directly
-        response = await controller.send_message_async(content)
-
-        # Send response back
-        await websocket.send_json({
-            "type": "response",
-            "content": response or "No response received",
-            "complete": True,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        })
-
-        # Send updated status
-        status = ws_manager.get_status(guid)
-        await websocket.send_json({
-            "type": "status",
-            **status
-        })
-
-    except Exception as e:
-        logger.error(f"Error processing message: {e}")
-        await websocket.send_json({
-            "type": "error",
-            "message": str(e)
-        })
-
-
-async def create_session_ws(websocket: WebSocket, guid: str):
-    """Create session via WebSocket."""
-    global session_controller
-
-    try:
-        await websocket.send_json({
-            "type": "status",
-            "state": "initializing",
-            "progress": 10,
-            "message": "Creating session..."
-        })
-
-        # Run initialization in thread pool
-        from session_initializer import SessionInitializer
-        initializer = SessionInitializer()
-
-        result = await initializer.initialize_session(
-            guid=guid,
-            email=f"{DEFAULT_USER}@demo.local",
-            phone="0000000000"
-        )
-
-        if result.get('success'):
-            controller = SessionController(guid=guid)
-            ws_manager.set_session_controller(guid, controller)
-            session_controller = controller  # Backwards compatibility
-
-            await websocket.send_json({
-                "type": "session_created",
-                "success": True,
-                "message": "Session ready - send your first message",
-                "guid": guid,
-                "session_name": controller.session_name
-            })
-
-            # Send status update
-            status = ws_manager.get_status(guid)
-            await websocket.send_json({
-                "type": "status",
-                **status
-            })
-        else:
-            await websocket.send_json({
-                "type": "error",
-                "message": result.get('error', 'Failed to create session')
-            })
-
-    except Exception as e:
-        logger.error(f"Error creating session via WS: {e}")
-        await websocket.send_json({
-            "type": "error",
-            "message": str(e)
-        })
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 WebSocket server for real-time progress updates from Claude CLI.
 
 This server:
-- Listens on port 8001 for WebSocket connections
+- Listens on port 8082 for WebSocket connections
 - Uses path-based routing: /ws/<guid>
 - Receives progress messages from notify.sh (Claude CLI)
 - Broadcasts to UI clients subscribed to the same GUID
@@ -33,7 +33,7 @@ class ProgressWebSocketServer:
     - Signaling session_controller when ack/done received (asyncio.Event)
     """
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 8001):
+    def __init__(self, host: str = "0.0.0.0", port: int = 8082):
         self.host = host
         self.port = port
         # Map: guid -> set of connected WebSocket clients
@@ -327,7 +327,7 @@ _server_instance: ProgressWebSocketServer | None = None
 _server_task: asyncio.Task | None = None
 
 
-async def start_progress_server(host: str = "0.0.0.0", port: int = 8001) -> ProgressWebSocketServer:
+async def start_progress_server(host: str = "0.0.0.0", port: int = 8082) -> ProgressWebSocketServer:
     """Start the progress WebSocket server in the background."""
     global _server_instance, _server_task
 

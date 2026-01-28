@@ -1,391 +1,333 @@
 # Tmux Builder
 
-A backend system for programmatic interaction with Claude AI through isolated tmux sessions, implementing the **SmartBuild file-based I/O pattern**.
+Web UI for interacting with Claude CLI through isolated tmux sessions with real-time progress updates.
+
+---
+
+## Production Deployment
+
+| Property | Value |
+|----------|-------|
+| **Deployed Branch** | `wsocket_cli` (also synced to `wsocket_ui`) |
+| **Frontend URL** | https://d3r4k77gnvpmzn.cloudfront.net |
+| **API URL** | https://d3r4k77gnvpmzn.cloudfront.net/api/ |
+| **WebSocket** | wss://d3r4k77gnvpmzn.cloudfront.net/ws/{guid} |
+| **Admin Password** | `tmux@admin2026` |
+| **EC2 IP** | 184.73.78.154 |
+| **SSH** | `ssh ai-product-studio` |
+
+### Admin Access
+
+1. Open https://d3r4k77gnvpmzn.cloudfront.net
+2. Click "Admin Login" in header
+3. Enter password: `tmux@admin2026`
+4. Sidebar with session management appears
+
+### API: Create Client Session
+
+```bash
+curl -X POST https://d3r4k77gnvpmzn.cloudfront.net/api/admin/sessions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "John Doe",
+    "email": "john@example.com",
+    "phone": "+1-555-123-4567",
+    "initial_request": "Build me a landing page"
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "link": "https://d3r4k77gnvpmzn.cloudfront.net/?guid=...&embed=true"
+}
+```
+
+Redirect users to `link` - they see their request in chat with Claude processing in activity log.
+
+---
 
 ## Architecture
 
-- **Backend**: Pure Python (no web server)
-- **Session Management**: tmux (isolated per-job sessions)
-- **AI Engine**: Claude CLI
-- **Persistence**: File-based (job queues, prompts, outputs)
-- **Pattern**: SmartBuild file-based I/O
+```
+                    ┌─────────────────────────────────────────────────────────────┐
+                    │                     CloudFront                               │
+                    │              d3r4k77gnvpmzn.cloudfront.net                   │
+                    │                                                              │
+                    │  ┌──────────┐  ┌──────────┐  ┌──────────────┐               │
+                    │  │ /* (def) │  │ /api/*   │  │ /ws/*        │               │
+                    │  └────┬─────┘  └────┬─────┘  └──────┬───────┘               │
+                    └───────┼─────────────┼───────────────┼───────────────────────┘
+                            │             │               │
+                            ▼             ▼               ▼
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                           EC2 Instance (t3.xlarge)                                │
+│                           IP: 184.73.78.154                                       │
+│                                                                                   │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐                   │
+│  │  Frontend       │  │  Backend API    │  │  WebSocket      │                   │
+│  │  (serve)        │  │  (FastAPI)      │  │  (ws_server)    │                   │
+│  │  Port: 3001     │  │  Port: 8080     │  │  Port: 8082     │                   │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘                   │
+└───────────────────────────────────────────────────────────────────────────────────┘
+```
 
-## How It Works
+**Dual-channel Communication:**
+- **Channel 1 (HTTP)**: REST API for chat - UI ↔ FastAPI ↔ tmux ↔ Claude
+- **Channel 2 (WebSocket)**: Progress updates - Claude → notify.sh → ws_server → UI
 
-1. **Create Session**: Initialize session directory with metadata
-2. **Add Job**: Queue a job (echo_test, file_analysis, generic)
-3. **Execute Job**:
-   - Create isolated TMUX session
-   - Write prompt to disk (`prompts/` directory)
-   - Instruct Claude to read prompt file
-   - Claude writes response to disk (`output/` directory)
-   - Monitor output file for completion (file existence + mtime + size)
-4. **Completion Detection**: File-based monitoring (no stdout parsing)
-5. **Cleanup**: Kill TMUX session, job marked complete
+---
 
 ## Project Structure
 
 ```
 tmux-builder/
-├── backend/                      # Python backend modules
-│   ├── config.py                 # Configuration & path helpers (243 lines)
-│   ├── session_manager.py        # Session/job persistence (207 lines)
-│   ├── job_queue_manager.py      # Job execution (256 lines)
-│   ├── prompt_preparer.py        # Prompt generation (223 lines)
-│   ├── tmux_helper.py            # TMUX operations (222 lines)
-│   └── test_tmux_integration.py  # Integration tests (165 lines)
-└── sessions/                     # Runtime storage (auto-created)
-    ├── active/                   # Active sessions
-    │   └── <session_id>/
-    │       ├── prompts/          # Prompt files
-    │       ├── output/           # Claude's responses
-    │       ├── logs/             # Session logs
-    │       ├── metadata.json     # Session metadata
-    │       └── job_queue.json    # Job queue
-    └── deleted/                  # Deleted sessions (archived)
+├── backend/                      # Python backend
+│   ├── main.py                   # FastAPI app, admin API
+│   ├── ws_server.py              # WebSocket server (port 8082)
+│   ├── session_controller.py     # Message orchestration
+│   ├── session_initializer.py    # Creates tmux sessions
+│   └── system_prompt_generator.py
+├── frontend/                     # React frontend
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── SplitChatView.jsx # Main UI with admin auth
+│   │   │   ├── SessionSidebar.jsx # Session list
+│   │   │   └── MessageList.jsx   # Chat with markdown
+│   │   ├── hooks/
+│   │   │   └── useProgressSocket.js # WebSocket hook
+│   │   └── services/
+│   │       └── api.js            # API client
+│   └── dist/                     # Built frontend
+├── deployment/                   # AWS deployment scripts
+│   ├── aws-setup.sh              # Infrastructure setup
+│   └── ec2-deploy.sh             # Application deployment
+├── sessions/                     # Runtime storage
+│   ├── active/<guid>/            # Active sessions
+│   └── deleted/                  # Archived sessions
+└── docs/                         # Documentation
 ```
 
-## Setup
+---
+
+## Local Development
 
 ### Requirements
 
 ```bash
 # System dependencies
-sudo apt-get install tmux python3 python3-pip
+sudo apt-get install tmux python3 python3-pip nodejs npm
 
 # Claude CLI (required)
 # Install from: https://claude.ai/download
-# Verify: claude --version
+claude --version
 ```
 
-### Backend Setup
+### Start Backend
 
 ```bash
 cd backend
-
-# Create virtual environment (optional but recommended)
 python3 -m venv venv
 source venv/bin/activate
-
-# No external dependencies needed (uses Python stdlib only)
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
-## Usage
-
-### Running Tests
+### Start Frontend
 
 ```bash
-cd backend
-python3 test_tmux_integration.py
+cd frontend
+npm install
+npm run dev
 ```
 
-### Example Test Output
+Access at http://localhost:5173
 
-```
-============================================================
-tmux-builder Configuration
-============================================================
-Base Directory:      /path/to/backend
-Sessions Directory:  /path/to/sessions
-CLI Command:         claude --dangerously-skip-permissions
-TMUX Prefix:         tmux_builder
-Max Concurrent Jobs: 4
-Backend Port:        8000
-Log Level:           INFO
-============================================================
+---
 
-============================================================
-TEST 1: Echo Test (File-Based I/O)
-============================================================
-✓ Session created: /path/to/sessions/active/test_20260124_123456
-✓ Job created: job_123456
+## Deployment to AWS
 
-📝 Executing job (this will take ~30-60 seconds)...
-   - Creating TMUX session
-   - Starting Claude CLI
-   - Writing prompt to disk
-   - Sending instruction to Claude
-   - Waiting for output file...
-
-✅ TEST PASSED!
-
-Job Status: completed
-Output Path: /path/to/output/echo_output_123456.txt
-```
-
-### Programmatic Usage
-
-```python
-from session_manager import SessionManager
-from job_queue_manager import JobQueueManager
-from datetime import datetime
-
-# 1. Create session
-session_id = f"my_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-SessionManager.create_session(session_id, {
-    'description': 'My automation session',
-    'created_by': 'my_script'
-})
-
-# 2. Add job
-job = {
-    'id': f"job_{datetime.now().strftime('%H%M%S')}",
-    'type': 'echo_test',
-    'message': 'Hello from automation!'
-}
-SessionManager.add_job(session_id, job)
-
-# 3. Execute job
-success = JobQueueManager.execute_job(session_id, job['id'])
-
-# 4. Get results
-if success:
-    job = SessionManager.get_job(session_id, job['id'])
-    output_path = job['output_path']
-
-    with open(output_path, 'r') as f:
-        result = f.read()
-        print(result)
-```
-
-## Key Features
-
-### SmartBuild Pattern
-- **File-based I/O**: Prompts and outputs via files (not stdout parsing)
-- **Atomic completion detection**: File existence + mtime + size checks
-- **Persistent artifacts**: All prompts/outputs saved for debugging
-- **No terminal buffer limits**: Handle large content
-
-### Reliability
-- **Isolated TMUX sessions**: Each job runs in its own session
-- **Critical timing patterns**: Proven delays for TMUX command reliability
-- **Timeout protection**: All jobs have configurable timeouts
-- **Error handling**: Graceful failure with cleanup
-
-### Job Types
-1. **echo_test**: Simple echo for testing (60s timeout)
-2. **file_analysis**: Analyze files and generate reports (300s timeout)
-3. **generic**: Custom prompts with flexible timeouts
-
-### Monitoring & Debugging
-- Session logs: Event-based logging per session
-- Job queue persistence: Full job history saved
-- Output artifacts: All Claude responses preserved
-- TMUX session inspection: Attach to live sessions for debugging
-
-## Core Modules
-
-### config.py
-- Centralized configuration
-- Path management helpers
-- Timing constants (CRITICAL - do not modify)
-- Validation (check tmux, Claude CLI)
-
-### session_manager.py
-- Session/job data persistence
-- Job queue management (add, update, get)
-- Session logging
-- Metadata handling
-
-### job_queue_manager.py
-- Job execution orchestration
-- TMUX session creation per job
-- File-based completion monitoring
-- Timeout and error handling
-
-### prompt_preparer.py
-- Prompt generation for different job types
-- File writing (prompts directory)
-- Instruction formatting
-- Output path generation
-
-### tmux_helper.py
-- Low-level TMUX operations
-- Session creation (with Claude CLI init)
-- Command sending (with critical timing)
-- Pane output capture
-- Session cleanup
-
-## Configuration
-
-### Environment Variables
+### Quick Deploy
 
 ```bash
-export USER_ID="my_user"                    # Default: default_user
-export CLI_PATH="claude"                    # Default: claude
-export CLI_MODEL="sonnet"                   # Default: sonnet
-export BACKEND_PORT="8000"                  # Default: 8000
-export LOG_LEVEL="INFO"                     # Default: INFO
-export SKIP_CONFIG_VALIDATION="true"        # Skip validation (testing)
+# Full deployment (upload, build, restart)
+./deployment/ec2-deploy.sh deploy
+
+# Or individual steps
+./deployment/ec2-deploy.sh upload      # Upload code only
+./deployment/ec2-deploy.sh build       # Build frontend
+./deployment/ec2-deploy.sh restart     # Restart PM2 services
+./deployment/ec2-deploy.sh status      # Check status
+./deployment/ec2-deploy.sh logs        # View logs
+./deployment/ec2-deploy.sh invalidate  # Clear CloudFront cache
 ```
 
-### Timing Configuration (CRITICAL)
+### AWS Resources
+
+| Resource | Details |
+|----------|---------|
+| EC2 | t3.xlarge, 100GB gp3, us-east-1 |
+| CloudFront | E139A6WQVKJXU9 |
+| Security Group | Ports: 22, 80, 443, 3001, 8080, 8082, 8443 |
+
+### PM2 Services
+
+```bash
+# On EC2
+pm2 list                    # Show services
+pm2 restart all             # Restart all
+pm2 logs                    # View logs
+pm2 monit                   # Monitor
+```
+
+---
+
+## Session Flow
+
+1. **Create Session**: Admin creates via sidebar or API
+2. **Send Message**: User types message → saved to `prompt_{timestamp}.txt`
+3. **Claude Processing**: tmux sends prompt path to Claude CLI
+4. **Progress Updates**: Claude calls `notify.sh` → WebSocket → UI activity log
+5. **Completion**: Claude writes `summary.md` → backend reads → UI displays
+
+### Session Folder Structure
+
+```
+sessions/active/<guid>/
+├── system_prompt.txt      # Agent instructions
+├── notify.sh              # Progress script (GUID baked in)
+├── prompt_{timestamp}.txt # User message (unique per message)
+├── summary.md             # Formatted completion summary
+├── chat_history.jsonl     # Persisted chat
+├── activity_log.jsonl     # Activity log
+├── status.json            # Session state
+└── tmp/                   # Scratch work
+```
+
+---
+
+## Key Implementation Patterns
+
+### File-Based I/O (SmartBuild Pattern)
 
 ```python
-# From config.py - DO NOT MODIFY without thorough testing
-
-TMUX_SEND_COMMAND_DELAY = 0.3   # After send-keys
-TMUX_SEND_ENTER_DELAY = 1.2     # After Enter key
-TMUX_CLAUDE_INIT_DELAY = 3.0    # After starting Claude CLI
+# Write prompt to file, send path to Claude
+prompt_path = session_path / f"prompt_{timestamp}.txt"
+prompt_path.write_text(user_message)
+instruction = f"Read and respond to: {prompt_path}"
 ```
 
-### Job Timeouts
+### Timestamped Prompts (Prevents Caching)
 
 ```python
-JOB_TIMEOUTS = {
-    'echo_test': 60,        # 1 minute
-    'file_analysis': 300,   # 5 minutes
-    'code_generation': 600, # 10 minutes
-    'default': 300          # 5 minutes
-}
+timestamp_ms = int(time.time() * 1000)
+prompt_filename = f"prompt_{timestamp_ms}.txt"
 ```
 
-## Dependencies
-
-### Required
-- **Python 3.8+**: Standard library only (no pip packages)
-- **tmux**: Terminal multiplexer
-- **Claude CLI**: Official CLI tool from Anthropic
-
-### No External Python Packages
-Uses only Python standard library:
-- `subprocess` - TMUX command execution
-- `pathlib` - Path management
-- `json` - Data persistence
-- `logging` - Event logging
-- `datetime` - Timestamps
-- `time` - Timing delays
-
-## Completion Detection
-
-### File-Based Strategy
+### Event-Based Waiting (Not Polling)
 
 ```python
-# Monitors output file for completion
-while elapsed < timeout:
-    # Check 1: File exists?
-    if not output_path.exists():
-        continue
-
-    # Check 2: File created AFTER job started?
-    if file_mtime < job_start_time:
-        continue  # Old file from previous run
-
-    # Check 3: File has reasonable content?
-    if file_size < 100 bytes:
-        continue  # Too small, incomplete
-
-    # All checks passed - job complete!
-    return True
+event = server.get_ack_event(self.guid)
+event.clear()
+await asyncio.wait_for(event.wait(), timeout=timeout)
 ```
 
-### Benefits
-- No stdout parsing
-- Atomic file operations
-- Race-condition free (mtime check)
-- Handles large content
-- Simple and reliable
+---
 
-## Performance
+## API Endpoints
 
-### Typical Job Latency
+### Public
 
-| Component | Latency |
-|-----------|---------|
-| Session creation | 3-5s (Claude CLI init) |
-| Prompt preparation | 10-50ms (file write) |
-| TMUX command send | 100-200ms |
-| Claude processing | 1-10s (varies by task) |
-| Completion detection | 0-2s (file polling) |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/chat` | Send message |
+| GET | `/api/history?guid=` | Get chat history |
+| POST | `/api/clear` | Clear session |
+| GET | `/api/status` | Get status |
 
-### Job Examples
+### Admin
 
-| Job Type | Min Wait | Timeout | Typical Duration |
-|----------|----------|---------|------------------|
-| echo_test | 5s | 60s | 10-20s |
-| file_analysis | 10s | 300s | 30-90s |
-| code_generation | 20s | 600s | 60-300s |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/sessions?filter=` | List sessions (all/active/completed/deleted) |
+| POST | `/api/admin/sessions` | Create session with client info |
+| GET | `/api/admin/sessions/{guid}` | Get session details |
+| DELETE | `/api/admin/sessions/{guid}` | Delete session |
+| POST | `/api/admin/sessions/{guid}/complete` | Mark complete |
+| POST | `/api/admin/sessions/{guid}/restore` | Restore deleted |
 
-## Scalability
-
-- **Concurrent jobs**: Up to `MAX_CONCURRENT_JOBS` (default: 4)
-- **Session isolation**: Each job in its own TMUX session
-- **No interference**: Jobs don't affect each other
-- **File-based**: Simple, persistent storage
-
-## Future Enhancements
-
-1. **API Server**: Add FastAPI REST API for web frontend
-2. **Web UI**: React interface for job management
-3. **WebSocket**: Real-time job progress updates
-4. **Job Priority Queue**: Priority-based execution
-5. **Parallel Execution**: Improved concurrent job handling
-6. **Job Retry Logic**: Automatic retry on transient failures
-7. **Enhanced Monitoring**: Real-time progress tracking
-8. **Job Cancellation**: Cancel running jobs
-9. **Session Persistence**: Save/restore sessions across restarts
+---
 
 ## Troubleshooting
 
-### Claude CLI Not Found
-```bash
-# Verify Claude CLI is installed and in PATH
-which claude
-claude --version
+### WebSocket Not Connecting
 
-# If not found, install from: https://claude.ai/download
+```bash
+# Check ws_server is running
+ssh ai-product-studio "pm2 logs tmux-backend"
+
+# Check port 8082 is listening
+ssh ai-product-studio "ss -tlnp | grep 8082"
 ```
 
-### TMUX Not Found
-```bash
-# Install tmux
-sudo apt-get install tmux
+### CloudFront Serving Old Content
 
-# Verify installation
-tmux -V
+```bash
+# Invalidate cache
+./deployment/ec2-deploy.sh invalidate
+
+# Also clear browser cache (Ctrl+Shift+R)
 ```
 
-### Job Timeouts
-- Check `sessions/active/<session_id>/logs/` for detailed logs
-- Increase timeout in `config.py` for complex jobs
-- Verify Claude CLI is responding (attach to TMUX session)
+### tmux Session Issues
 
-### Debugging TMUX Sessions
 ```bash
-# List active sessions
+# List sessions
 tmux list-sessions
 
-# Attach to a job session
-tmux attach -t tmux_builder_job_<job_id>
+# Attach to debug
+tmux attach -t tmux_builder_<guid>
 
-# View pane content
-tmux capture-pane -t tmux_builder_job_<job_id> -p
+# Kill all tmux sessions
+tmux kill-server
 ```
+
+### Claude CLI Not Responding
+
+```bash
+# Verify Claude CLI
+claude --version
+
+# Check if session is stuck
+tmux capture-pane -t tmux_builder_<guid> -p
+```
+
+---
 
 ## Documentation
 
-All documentation is organized in the `docs/` directory:
+| File | Description |
+|------|-------------|
+| `CLAUDE.md` | AI assistant context (key files, patterns, gotchas) |
+| `docs/architecture/` | Technical architecture |
+| `docs/guides/QUICKSTART.md` | Quick start guide |
+| `docs/guides/SETUP.md` | Detailed setup |
+| `deployment/README.md` | AWS deployment details |
 
-### Architecture (`docs/architecture/`)
-- **ARCHITECTURE.md** - Detailed technical architecture and design decisions
-- **SMARTBUILD_ARCHITECTURE_ANALYSIS.md** - Deep dive into SmartBuild file-based I/O pattern
+---
 
-### Guides (`docs/guides/`)
-- **QUICKSTART.md** - Quick start guide for getting up and running
-- **SETUP.md** - Detailed setup instructions
-- **TESTING_GUIDE.md** - How to test the backend and UI
-- **HOW_TO_IMPLEMENT_TMUX_IN_ANY_PROJECT.md** - Pattern guide for implementing tmux in other projects
+## Cost Estimate (AWS)
 
-### Project Documentation (`docs/project/`)
-- **PROJECT_STATUS.txt** - Current project status and roadmap
-- **PROJECT_SUMMARY.md** - High-level project overview
-- **IMPLEMENTATION_SUMMARY.md** - Implementation details and decisions
+| Resource | Monthly |
+|----------|---------|
+| t3.xlarge | ~$121 |
+| 100GB gp3 | ~$8 |
+| CloudFront | ~$1-5 |
+| **Total** | **~$130-135** |
 
-### Implementation Plans (`docs/plans/`)
-- **2026-01-25-autonomous-build-agent.md** - Comprehensive implementation plan for autonomous build agent
-
-### Validation (`docs/validation/`)
-- **TEST_VALIDATION_REPORT.md** - Test results and validation status
+---
 
 ## License
 

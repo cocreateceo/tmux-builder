@@ -111,7 +111,8 @@ def get_sessions_by_email(email: str) -> List[Dict]:
                 chat_file = session_path / "chat_history.jsonl"
                 message_count = 0
                 if chat_file.exists():
-                    message_count = sum(1 for _ in open(chat_file))
+                    with open(chat_file) as f:
+                        message_count = sum(1 for _ in f)
 
                 # Get deployed URL if exists
                 deployed_url = status.get("deployed_url")

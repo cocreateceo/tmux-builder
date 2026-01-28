@@ -8,6 +8,16 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
   const [error, setError] = useState(null);
   const [openMenuGuid, setOpenMenuGuid] = useState(null);
 
+  // New Session Form State
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [newSessionData, setNewSessionData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    initial_request: ''
+  });
+  const [creating, setCreating] = useState(false);
+
   // Fetch sessions
   const fetchSessions = async () => {
     setLoading(true);
@@ -39,16 +49,32 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
     }
   };
 
-  // Handle create new session
-  const handleCreateNew = async () => {
+  // Handle create new session with form
+  const handleCreateNew = async (e) => {
+    e.preventDefault();
+
+    if (!newSessionData.name.trim() || !newSessionData.email.trim()) {
+      setError('Name and Email are required');
+      return;
+    }
+
+    setCreating(true);
+    setError(null);
+
     try {
-      const result = await apiService.createSession();
+      const result = await apiService.createSessionWithDetails(newSessionData);
       if (result.success && result.guid) {
         onCreateSession(result.guid);
         fetchSessions();
+        setShowNewForm(false);
+        setNewSessionData({ name: '', email: '', phone: '', initial_request: '' });
+      } else {
+        setError(result.error || 'Failed to create session');
       }
     } catch (err) {
       setError('Failed to create session');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -157,20 +183,82 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
           </div>
         </div>
 
-        {/* New Session Button */}
+        {/* New Session Button / Form */}
         <div className="p-3 border-b border-gray-700">
-          <button
-            onClick={handleCreateNew}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded text-sm font-semibold"
-          >
-            + New Session
-          </button>
+          {!showNewForm ? (
+            <button
+              onClick={() => setShowNewForm(true)}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded text-sm font-semibold"
+            >
+              + New Session
+            </button>
+          ) : (
+            <form onSubmit={handleCreateNew} className="space-y-2">
+              <div className="text-sm font-semibold text-gray-300 mb-2">Create New Session</div>
+
+              <input
+                type="text"
+                placeholder="Name *"
+                value={newSessionData.name}
+                onChange={(e) => setNewSessionData({ ...newSessionData, name: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                required
+              />
+
+              <input
+                type="email"
+                placeholder="Email *"
+                value={newSessionData.email}
+                onChange={(e) => setNewSessionData({ ...newSessionData, email: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+                required
+              />
+
+              <input
+                type="tel"
+                placeholder="Phone (optional)"
+                value={newSessionData.phone}
+                onChange={(e) => setNewSessionData({ ...newSessionData, phone: e.target.value })}
+                className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none"
+              />
+
+              <textarea
+                placeholder="Initial Request (optional)"
+                value={newSessionData.initial_request}
+                onChange={(e) => setNewSessionData({ ...newSessionData, initial_request: e.target.value })}
+                rows={3}
+                className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none resize-none"
+              />
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNewForm(false);
+                    setNewSessionData({ name: '', email: '', phone: '', initial_request: '' });
+                  }}
+                  className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded text-sm"
+                  disabled={creating}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded text-sm font-semibold disabled:opacity-50"
+                  disabled={creating}
+                >
+                  {creating ? 'Creating...' : 'Create'}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
 
         {/* Error */}
         {error && (
           <div className="p-2 bg-red-900 text-red-200 text-xs">
             {error}
+            <button onClick={() => setError(null)} className="ml-2 underline">×</button>
           </div>
         )}
 
@@ -262,7 +350,7 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
                   )}
 
                   <div className="text-sm text-gray-300 mt-1 truncate">
-                    {session.email || 'No email'}
+                    {session.client_name || session.email || 'No email'}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
                     <span>{session.chat_message_count} msgs</span>

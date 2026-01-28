@@ -2,6 +2,69 @@
 
 Complete setup instructions for the dual-channel WebSocket architecture.
 
+Yes, admin login was added. Here's the summary:                                                                                                                                              
+                                                                                                                                                                                               
+  Admin Login                                                                                                                                                                                  
+                                                                                                                                                                                               
+  Password: tmux@admin2026                                                                                                                                                                     
+                                                                                                                                                                                               
+  - Non-logged-in users see embed mode (no sidebar)                                                                                                                                            
+  - Click "Admin Login" button in header → enter password → get sidebar access                                                                                                                 
+  - Stored in localStorage.tmux_admin_auth                                                                                                                                                     
+                                                                                                                                                                                               
+  ---                                                                                                                                                                                          
+  API Integration for Main Application                                                                                                                                                         
+                                                                                                                                                                                               
+  Create Client Session                                                                                                                                                                        
+                                                                                                                                                                                               
+  Endpoint: POST https://d3r4k77gnvpmzn.cloudfront.net/api/admin/sessions                                                                                                                      
+                                                                                                                                                                                               
+  Request:                                                                                                                                                                                     
+  {                                                                                                                                                                                            
+    "name": "John Doe",                                                                                                                                                                        
+    "email": "john@example.com",                                                                                                                                                               
+    "phone": "+1-555-123-4567",                                                                                                                                                                
+    "initial_request": "I need help building a landing page for my SaaS product"                                                                                                               
+  }                                                                                                                                                                                            
+                                                                                                                                                                                               
+  Success Response:                                                                                                                                                                            
+  {                                                                                                                                                                                            
+    "success": true,                                                                                                                                                                           
+    "guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",                                                                                                                                            
+    "link": "https://d3r4k77gnvpmzn.cloudfront.net/?guid=a1b2c3d4-e5f6-7890-abcd-ef1234567890&embed=true"                                                                                      
+  }                                                                                                                                                                                            
+                                                                                                                                                                                               
+  Failure Response:                                                                                                                                                                            
+  {                                                                                                                                                                                            
+    "success": false,                                                                                                                                                                          
+    "error": "Failed to create session: <reason>"                                                                                                                                              
+  }                                                                                                                                                                                            
+                                                                                                                                                                                               
+  ---                                                                                                                                                                                          
+  What to do in your main app                                                                                                                                                                  
+                                                                                                                                                                                               
+  1. Collect user info (name, email, phone, what they want)                                                                                                                                    
+  2. POST to the API with the data above                                                                                                                                                       
+  3. Redirect user to the link returned in response                                                                                                                                            
+  4. User sees their request in chat, Claude processes it in activity log                                                                                                                      
+                                                                                                                                                                                               
+  Example (JavaScript):                                                                                                                                                                        
+  const response = await fetch('https://d3r4k77gnvpmzn.cloudfront.net/api/admin/sessions', {                                                                                                   
+    method: 'POST',                                                                                                                                                                            
+    headers: { 'Content-Type': 'application/json' },                                                                                                                                           
+    body: JSON.stringify({                                                                                                                                                                     
+      name: 'John Doe',                                                                                                                                                                        
+      email: 'john@example.com',                                                                                                                                                               
+      phone: '+1-555-123-4567',                                                                                                                                                                
+      initial_request: 'Build me a landing page'                                                                                                                                               
+    })                                                                                                                                                                                         
+  });                                                                                                                                                                                          
+                                                                                                                                                                                               
+  const data = await response.json();                                                                                                                                                          
+  if (data.success) {                                                                                                                                                                          
+    window.location.href = data.link;  // or open in iframe                                                                                                                                    
+  }                                                                                                                                                                                            
+                                        
 ## Prerequisites
 
 Before you begin, ensure you have the following installed:

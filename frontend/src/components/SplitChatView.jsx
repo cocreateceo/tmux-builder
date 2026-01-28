@@ -6,6 +6,17 @@ import InputArea from './InputArea.jsx';
 import McpToolsLog from './McpToolsLog.jsx';
 import SessionSidebar from './SessionSidebar.jsx';
 
+// Admin password (in production, this should be an environment variable or backend auth)
+const ADMIN_PASSWORD = 'tmux@admin2026';
+
+function getUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    guid: params.get('guid'),
+    embed: params.get('embed') === 'true'
+  };
+}
+
 function getStoredGuid() {
   const stored = localStorage.getItem('tmux_builder_guid');
   if (!stored || stored === 'null' || stored === 'undefined') {
@@ -14,12 +25,25 @@ function getStoredGuid() {
   return stored;
 }
 
+function isAdminLoggedIn() {
+  return localStorage.getItem('tmux_admin_auth') === 'true';
+}
+
 function SplitChatView() {
+  const urlParams = getUrlParams();
+  // Embed mode if URL has embed=true OR if user is not admin
+  const [isAdmin, setIsAdmin] = useState(isAdminLoggedIn());
+  const isEmbedMode = urlParams.embed || !isAdmin;
+
   const [messages, setMessages] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [guid, setGuid] = useState(getStoredGuid);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  // Use URL guid if provided, otherwise use stored guid
+  const [guid, setGuid] = useState(urlParams.guid || getStoredGuid);
 
   // MCP WebSocket handlers for progress updates
   // Loading state is controlled by HTTP request lifecycle, not WebSocket events
@@ -68,9 +92,14 @@ function SplitChatView() {
     clearActivityLog
   } = useProgressSocket(guid, mcpHandlers);
 
-  // Auto-resume session if GUID exists in localStorage
+  // Auto-resume session if GUID exists (from URL or localStorage)
   useEffect(() => {
     if (!guid) return;
+
+    // Store URL guid to localStorage for persistence
+    if (urlParams.guid) {
+      localStorage.setItem('tmux_builder_guid', guid);
+    }
 
     apiService.getHistory(guid)
       .then(historyResponse => {
@@ -79,10 +108,12 @@ function SplitChatView() {
         }
       })
       .catch(() => {
-        localStorage.removeItem('tmux_builder_guid');
-        setGuid(null);
+        if (!isEmbedMode) {
+          localStorage.removeItem('tmux_builder_guid');
+          setGuid(null);
+        }
       });
-  }, [guid]);
+  }, [guid, urlParams.guid, isEmbedMode]);
 
   // Send message
   const handleSendMessage = useCallback(async (messageData) => {
@@ -161,20 +192,43 @@ function SplitChatView() {
     setSidebarOpen(false);
   }, [clearActivityLog]);
 
+  // Admin login
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    if (loginPassword === ADMIN_PASSWORD) {
+      localStorage.setItem('tmux_admin_auth', 'true');
+      setIsAdmin(true);
+      setShowLoginModal(false);
+      setLoginPassword('');
+      setLoginError('');
+    } else {
+      setLoginError('Invalid password');
+    }
+  };
+
+  // Admin logout
+  const handleAdminLogout = () => {
+    localStorage.removeItem('tmux_admin_auth');
+    setIsAdmin(false);
+    setSidebarOpen(false);
+  };
+
   // Main split view
   return (
     <div className="h-screen flex flex-col">
-      {/* Collapsible Session Sidebar */}
-      <SessionSidebar
-        isOpen={sidebarOpen}
-        onToggle={() => setSidebarOpen(!sidebarOpen)}
-        currentGuid={guid}
-        onSelectSession={handleSelectSession}
-        onCreateSession={handleSidebarCreateSession}
-      />
+      {/* Collapsible Session Sidebar - hidden in embed mode */}
+      {!isEmbedMode && (
+        <SessionSidebar
+          isOpen={sidebarOpen}
+          onToggle={() => setSidebarOpen(!sidebarOpen)}
+          currentGuid={guid}
+          onSelectSession={handleSelectSession}
+          onCreateSession={handleSidebarCreateSession}
+        />
+      )}
 
       {/* Header */}
-      <div className={`bg-gray-800 text-white p-3 flex justify-between items-center transition-all ${sidebarOpen ? 'ml-72' : 'ml-0'}`}>
+      <div className={`bg-gray-800 text-white p-3 flex justify-between items-center transition-all ${!isEmbedMode && sidebarOpen ? 'ml-72' : 'ml-0'}`}>
         <div className="flex items-center gap-4">
           <h1 className="font-bold">Tmux Builder</h1>
           <div className="flex items-center gap-2 text-sm">
@@ -192,21 +246,79 @@ function SplitChatView() {
             </span>
           )}
         </div>
-        <button onClick={handleClearChat} className="text-sm text-red-400 hover:text-red-300">
-          Clear Session
-        </button>
+        <div className="flex items-center gap-4">
+          {isAdmin ? (
+            <>
+              <span className="text-xs text-green-400">Admin</span>
+              <button onClick={handleClearChat} className="text-sm text-red-400 hover:text-red-300">
+                Clear Session
+              </button>
+              <button onClick={handleAdminLogout} className="text-sm text-gray-400 hover:text-white">
+                Logout
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setShowLoginModal(true)}
+              className="text-sm text-blue-400 hover:text-blue-300"
+            >
+              Admin Login
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Admin Login Modal */}
+      {showLoginModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-80 shadow-xl">
+            <h2 className="text-lg font-bold text-gray-800 mb-4">Admin Login</h2>
+            <form onSubmit={handleAdminLogin}>
+              <input
+                type="password"
+                placeholder="Enter admin password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 mb-3 focus:outline-none focus:border-blue-500"
+                autoFocus
+              />
+              {loginError && (
+                <div className="text-red-500 text-sm mb-3">{loginError}</div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowLoginModal(false);
+                    setLoginPassword('');
+                    setLoginError('');
+                  }}
+                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded"
+                >
+                  Login
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Error banner */}
       {error && (
-        <div className={`bg-red-100 text-red-700 p-2 text-center text-sm transition-all ${sidebarOpen ? 'ml-72' : 'ml-0'}`}>
+        <div className={`bg-red-100 text-red-700 p-2 text-center text-sm transition-all ${!isEmbedMode && sidebarOpen ? 'ml-72' : 'ml-0'}`}>
           {error}
           <button onClick={() => setError(null)} className="ml-2 underline">Dismiss</button>
         </div>
       )}
 
       {/* Split panels */}
-      <div className={`flex-1 flex overflow-hidden transition-all ${sidebarOpen ? 'ml-72' : 'ml-0'}`}>
+      <div className={`flex-1 flex overflow-hidden transition-all ${!isEmbedMode && sidebarOpen ? 'ml-72' : 'ml-0'}`}>
         {/* Left: Chat */}
         <div className="w-1/2 flex flex-col border-r border-gray-300">
           <div className="flex-1 overflow-y-auto p-4 bg-white">

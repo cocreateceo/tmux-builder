@@ -54,12 +54,24 @@ export const apiService = {
     return response.data;
   },
 
-  // Create session with custom metadata
+  // Create session with custom metadata (legacy)
   createAdminSession: async (email, phone = '', initialRequest = '') => {
     const response = await api.post('/api/admin/sessions', {
+      name: 'Admin User',
       email,
-      phone: phone || '0000000000',
+      phone: phone || '',
       initial_request: initialRequest,
+    });
+    return response.data;
+  },
+
+  // Create session with full details (name, email, phone, initial_request)
+  createSessionWithDetails: async ({ name, email, phone = '', initial_request = '' }) => {
+    const response = await api.post('/api/admin/sessions', {
+      name,
+      email,
+      phone: phone || '',
+      initial_request: initial_request || '',
     });
     return response.data;
   },

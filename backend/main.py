@@ -266,8 +266,9 @@ async def create_session():
 
 class AdminSessionCreate(BaseModel):
     """Request model for admin session creation."""
-    email: str
-    phone: Optional[str] = "0000000000"
+    name: str  # Required
+    email: str  # Required
+    phone: Optional[str] = ""
     initial_request: Optional[str] = ""
 
 
@@ -275,6 +276,7 @@ class SessionInfo(BaseModel):
     """Session information for admin listing."""
     guid: str
     guid_short: str
+    client_name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     state: Optional[str] = None
@@ -346,6 +348,7 @@ async def list_sessions(filter: str = "all"):
         if status_file.exists():
             try:
                 status_data = json.loads(status_file.read_text())
+                session_info.client_name = status_data.get("client_name")
                 session_info.email = status_data.get("email")
                 session_info.phone = status_data.get("phone")
                 session_info.state = status_data.get("state")
@@ -394,38 +397,72 @@ async def list_sessions(filter: str = "all"):
 
 @app.post("/api/admin/sessions")
 async def create_admin_session(request: AdminSessionCreate):
-    """Create a new session with custom email/phone/initial request."""
-    logger.info(f"=== ADMIN CREATE SESSION: {request.email} ===")
+    """Create a new session for external client with name/email/phone/initial request."""
+    logger.info(f"=== CREATE CLIENT SESSION: {request.name} ({request.email}) ===")
 
-    new_guid = generate_unique_guid(request.email)
-    result = await initialize_new_session(
-        guid=new_guid,
-        email=request.email,
-        phone=request.phone or "0000000000"
-    )
+    # Base URL for session links (CloudFront production URL)
+    BASE_URL = "https://d3r4k77gnvpmzn.cloudfront.net"
 
-    if not result.get('success'):
-        error_msg = result.get('error', 'Unknown error')
-        logger.error(f"Failed to create admin session: {error_msg}")
-        raise HTTPException(status_code=500, detail=error_msg)
+    try:
+        new_guid = generate_unique_guid(request.email)
+        result = await initialize_new_session(
+            guid=new_guid,
+            email=request.email,
+            phone=request.phone or ""
+        )
 
-    controller = result['controller']
-    logger.info(f"Admin session created: {controller.session_name}")
+        if not result.get('success'):
+            error_msg = result.get('error', 'Unknown error')
+            logger.error(f"Failed to create client session: {error_msg}")
+            return {
+                "success": False,
+                "error": error_msg,
+                "guid": None,
+                "link": None
+            }
 
-    # Save initial request to status.json if provided
-    if request.initial_request:
+        controller = result['controller']
+        logger.info(f"Client session created: {controller.session_name}")
+
+        # Save name, email, phone to status.json
         status_file = ACTIVE_SESSIONS_DIR / new_guid / "status.json"
         if status_file.exists():
             status_data = json.loads(status_file.read_text())
-            status_data["user_request"] = request.initial_request
+            status_data["client_name"] = request.name
+            status_data["client_email"] = request.email
+            status_data["client_phone"] = request.phone or ""
+            if request.initial_request:
+                status_data["user_request"] = request.initial_request
             status_file.write_text(json.dumps(status_data, indent=2))
 
-    return {
-        "success": True,
-        "message": "Session created successfully",
-        "guid": new_guid,
-        "email": request.email
-    }
+        # If initial_request provided, send it to Claude CLI
+        if request.initial_request:
+            logger.info(f"Sending initial request to Claude: {request.initial_request[:50]}...")
+            # Store controller globally for this session
+            global session_controller
+            session_controller = controller
+
+            # Send the message (this saves to chat_history and sends to Claude)
+            await controller.send_message_async(request.initial_request)
+            logger.info("Initial request sent to Claude CLI")
+
+        # Generate session link with embed=true to hide sidebar
+        session_link = f"{BASE_URL}/?guid={new_guid}&embed=true"
+
+        return {
+            "success": True,
+            "guid": new_guid,
+            "link": session_link
+        }
+
+    except Exception as e:
+        logger.error(f"Exception creating client session: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "guid": None,
+            "link": None
+        }
 
 
 @app.delete("/api/admin/sessions/{guid}")

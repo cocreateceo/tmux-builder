@@ -92,6 +92,67 @@ def get_chat_history(guid: str) -> List[Dict]:
     return controller.get_chat_history() if controller else []
 
 
+def get_sessions_by_email(email: str) -> List[Dict]:
+    """Get all sessions for a client email."""
+    sessions = []
+    if not ACTIVE_SESSIONS_DIR.exists():
+        return sessions
+
+    for session_path in ACTIVE_SESSIONS_DIR.iterdir():
+        if not session_path.is_dir():
+            continue
+        status_file = session_path / "status.json"
+        if not status_file.exists():
+            continue
+        try:
+            status = json.loads(status_file.read_text())
+            if status.get("email", "").lower() == email.lower():
+                # Count messages
+                chat_file = session_path / "chat_history.jsonl"
+                message_count = 0
+                if chat_file.exists():
+                    message_count = sum(1 for _ in open(chat_file))
+
+                # Get deployed URL if exists
+                deployed_url = status.get("deployed_url")
+
+                sessions.append({
+                    "guid": session_path.name,
+                    "name": status.get("client_name") or status.get("name") or f"Project {session_path.name[:8]}",
+                    "email": status.get("email"),
+                    "status": "deployed" if deployed_url else ("completed" if status.get("state") == "completed" else "active"),
+                    "message_count": message_count,
+                    "initial_request": status.get("initial_request", ""),
+                    "deployed_url": deployed_url,
+                    "archived": status.get("archived", False),
+                    "created_at": status.get("created_at"),
+                    "updated_at": status.get("updated_at")
+                })
+        except (json.JSONDecodeError, IOError):
+            continue
+
+    # Sort by updated_at descending
+    sessions.sort(key=lambda x: x.get("updated_at") or x.get("created_at") or "", reverse=True)
+    return sessions
+
+
+def get_client_info_from_guid(guid: str) -> Optional[Dict]:
+    """Get client info (email, name) from a session GUID."""
+    session_path = ACTIVE_SESSIONS_DIR / guid
+    status_file = session_path / "status.json"
+    if not status_file.exists():
+        return None
+    try:
+        status = json.loads(status_file.read_text())
+        return {
+            "email": status.get("email"),
+            "name": status.get("client_name") or status.get("name"),
+            "phone": status.get("phone")
+        }
+    except (json.JSONDecodeError, IOError):
+        return None
+
+
 def generate_unique_guid(seed_prefix: str) -> str:
     """Generate a unique GUID using seed prefix, timestamp, and UUID."""
     import time
@@ -147,6 +208,17 @@ class SessionStatus(BaseModel):
 
 class HistoryResponse(BaseModel):
     messages: List[Dict]
+
+
+class ClientProjectCreate(BaseModel):
+    email: str
+    initial_request: str
+    name: Optional[str] = None
+
+
+class ClientProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    archived: Optional[bool] = None
 
 
 # API Endpoints
@@ -617,6 +689,145 @@ async def get_session_details(guid: str):
     result["folders"] = [d.name for d in session_dir.iterdir() if d.is_dir()]
 
     return result
+
+
+# ==============================================
+# CLIENT API ENDPOINTS
+# ==============================================
+
+@app.get("/api/client/projects")
+async def get_client_projects(email: str = None, guid: str = None):
+    """Get all projects for a client (by email or lookup from guid)."""
+    if not email and not guid:
+        raise HTTPException(status_code=400, detail="Either email or guid required")
+
+    if not email and guid:
+        client_info = get_client_info_from_guid(guid)
+        if not client_info or not client_info.get("email"):
+            raise HTTPException(status_code=404, detail="Session not found or no email associated")
+        email = client_info["email"]
+
+    projects = get_sessions_by_email(email)
+    client_info = get_client_info_from_guid(guid) if guid else None
+
+    return {
+        "success": True,
+        "projects": projects,
+        "client": client_info or {"email": email}
+    }
+
+
+@app.post("/api/client/projects")
+async def create_client_project(data: ClientProjectCreate):
+    """Create a new project for an existing client."""
+    guid = generate_guid()
+
+    try:
+        initializer = SessionInitializer()
+        result = await initializer.initialize_session(
+            guid=guid,
+            email=data.email,
+            user_request=data.initial_request
+        )
+
+        if not result.get('success'):
+            raise HTTPException(status_code=500, detail=result.get('error', 'Failed to initialize session'))
+
+        # Update name and initial_request in status.json
+        session_path = ACTIVE_SESSIONS_DIR / guid
+        status_file = session_path / "status.json"
+        if status_file.exists():
+            status = json.loads(status_file.read_text())
+            if data.name:
+                status["name"] = data.name
+            status["initial_request"] = data.initial_request
+            status_file.write_text(json.dumps(status, indent=2))
+
+        return {
+            "success": True,
+            "guid": guid,
+            "link": f"/?guid={guid}&embed=true"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create client project: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/api/client/projects/{guid}")
+async def update_client_project(guid: str, data: ClientProjectUpdate):
+    """Update project properties (name, archived status)."""
+    session_path = ACTIVE_SESSIONS_DIR / guid
+    status_file = session_path / "status.json"
+
+    if not status_file.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    try:
+        status = json.loads(status_file.read_text())
+
+        if data.name is not None:
+            status["name"] = data.name
+        if data.archived is not None:
+            status["archived"] = data.archived
+
+        status["updated_at"] = datetime.now().isoformat()
+        status_file.write_text(json.dumps(status, indent=2))
+
+        return {"success": True, "guid": guid}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/client/projects/{guid}/duplicate")
+async def duplicate_client_project(guid: str):
+    """Duplicate an existing project."""
+    session_path = ACTIVE_SESSIONS_DIR / guid
+    status_file = session_path / "status.json"
+
+    if not status_file.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    try:
+        status = json.loads(status_file.read_text())
+        email = status.get("email")
+        initial_request = status.get("initial_request", "")
+        original_name = status.get("name", "Project")
+
+        if not email:
+            raise HTTPException(status_code=400, detail="Original project has no email")
+
+        # Create new project
+        new_guid = generate_guid()
+        initializer = SessionInitializer()
+        result = await initializer.initialize_session(
+            guid=new_guid,
+            email=email,
+            user_request=initial_request
+        )
+
+        if not result.get('success'):
+            raise HTTPException(status_code=500, detail=result.get('error', 'Failed to initialize session'))
+
+        # Update name to indicate it's a copy
+        new_session_path = ACTIVE_SESSIONS_DIR / new_guid
+        new_status_file = new_session_path / "status.json"
+        if new_status_file.exists():
+            new_status = json.loads(new_status_file.read_text())
+            new_status["name"] = f"{original_name} (Copy)"
+            new_status["initial_request"] = initial_request
+            new_status_file.write_text(json.dumps(new_status, indent=2))
+
+        return {
+            "success": True,
+            "guid": new_guid,
+            "link": f"/?guid={new_guid}&embed=true"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/status")

@@ -319,6 +319,154 @@ export AWS_PROFILE=sunwaretech
 
 ---
 
+## WEBSITE FUNCTIONALITY REQUIREMENTS (CRITICAL)
+
+**EVERY website you create MUST have 100% working functionality. No dummy buttons, no placeholder code.**
+
+### Buttons - MUST Have onClick Handlers
+
+```jsx
+// ❌ NEVER DO THIS - Broken button
+<button className="btn">Order Now</button>
+
+// ✅ ALWAYS DO THIS - Working button
+<button className="btn" onClick={{() => addToCart(item)}}>Order Now</button>
+```
+
+### Forms - MUST Have Real Submit Logic
+
+```jsx
+// ❌ NEVER DO THIS - Form does nothing
+<form onSubmit={{(e) => e.preventDefault()}}>
+
+// ✅ ALWAYS DO THIS - Form with real handling
+<form onSubmit={{handleSubmit}}>
+// handleSubmit must: validate, save data, show success message
+```
+
+### Links - NO Empty href="#"
+
+```jsx
+// ❌ NEVER DO THIS
+<a href="#">Facebook</a>
+
+// ✅ DO THIS - Real URL or scroll link
+<a href="https://facebook.com/brand">Facebook</a>
+<a href="#contact">Contact Us</a>  // Scrolls to section
+```
+
+### Required State Management
+
+For ANY website with interactive features, implement:
+
+```jsx
+// Shopping/Order websites
+const [cart, setCart] = useState([]);
+const [isCartOpen, setIsCartOpen] = useState(false);
+
+// Reservation/Contact websites
+const [formData, setFormData] = useState({{}});
+const [isSubmitted, setIsSubmitted] = useState(false);
+
+// Use localStorage for persistence
+useEffect(() => {{
+  localStorage.setItem('cart', JSON.stringify(cart));
+}}, [cart]);
+```
+
+### Required UI Feedback Components
+
+EVERY website must include these patterns:
+
+1. **Toast Notifications** - For add to cart, form submit, errors
+2. **Success Modals** - After form submissions
+3. **Loading States** - During async operations
+4. **Cart Sidebar/Modal** - For e-commerce sites
+5. **Quantity Selectors** - For order items
+
+### E-Commerce Website Checklist
+
+Before `./notify.sh done`, verify:
+
+- [ ] "Add to Cart" buttons add items to cart state
+- [ ] Cart shows item count badge
+- [ ] Cart modal/sidebar shows all items
+- [ ] Can increase/decrease quantity
+- [ ] Can remove items from cart
+- [ ] Checkout button shows order summary
+- [ ] Order confirmation modal appears
+- [ ] localStorage persists cart between refreshes
+
+### Form/Reservation Website Checklist
+
+Before `./notify.sh done`, verify:
+
+- [ ] Form validates required fields
+- [ ] Submit button triggers handleSubmit
+- [ ] Success modal/message appears after submit
+- [ ] Form data saved to localStorage
+- [ ] Error messages show for invalid input
+- [ ] Loading state during submission
+
+### Code Template - Cart System
+
+```jsx
+// Add this to any e-commerce website
+const [cart, setCart] = useState(() => {{
+  const saved = localStorage.getItem('cart');
+  return saved ? JSON.parse(saved) : [];
+}});
+
+const addToCart = (item) => {{
+  setCart(prev => {{
+    const existing = prev.find(i => i.id === item.id);
+    if (existing) {{
+      return prev.map(i => i.id === item.id ? {{...i, qty: i.qty + 1}} : i);
+    }}
+    return [...prev, {{...item, qty: 1}}];
+  }});
+  showToast(`${{item.name}} added to cart!`);
+}};
+
+const removeFromCart = (id) => {{
+  setCart(prev => prev.filter(i => i.id !== id));
+}};
+
+useEffect(() => {{
+  localStorage.setItem('cart', JSON.stringify(cart));
+}}, [cart]);
+```
+
+### Code Template - Form Submission
+
+```jsx
+// Add this to any form-based website
+const [formData, setFormData] = useState({{}});
+const [isSubmitting, setIsSubmitting] = useState(false);
+const [showSuccess, setShowSuccess] = useState(false);
+
+const handleSubmit = (e) => {{
+  e.preventDefault();
+  setIsSubmitting(true);
+
+  // Simulate API call
+  setTimeout(() => {{
+    // Save to localStorage
+    const submissions = JSON.parse(localStorage.getItem('submissions') || '[]');
+    submissions.push({{...formData, timestamp: new Date().toISOString()}});
+    localStorage.setItem('submissions', JSON.stringify(submissions));
+
+    setIsSubmitting(false);
+    setShowSuccess(true);
+    setFormData({{}});
+  }}, 1000);
+}};
+```
+
+**REMEMBER: A website with non-functional buttons is NOT complete. Test EVERY interactive element before deploying.**
+
+---
+
 ## EXAMPLE WORKFLOW
 
 User requests: "Build a landing page for a SaaS product"

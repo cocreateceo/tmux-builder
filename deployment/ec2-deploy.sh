@@ -138,6 +138,7 @@ update_frontend_urls() {
         sed -i \"s|https://d3r4k77gnvpmzn.cloudfront.net|${CLOUDFRONT_URL}|g\" $REMOTE_PATH/frontend/src/services/api.js
 
         # Update WebSocket URLs to CloudFront WSS (preferred)
+        sed -i \"s|ws://localhost:8082|${CF_WSS_URL}|g\" $REMOTE_PATH/frontend/src/hooks/useProgressSocket.js
         sed -i \"s|ws://localhost:8001|${CF_WSS_URL}|g\" $REMOTE_PATH/frontend/src/hooks/useProgressSocket.js
         sed -i \"s|ws://localhost:8000|${CF_WSS_URL}|g\" $REMOTE_PATH/frontend/src/hooks/useWebSocket.js
         sed -i \"s|wss://.*:8443|${CF_WSS_URL}|g\" $REMOTE_PATH/frontend/src/hooks/useProgressSocket.js

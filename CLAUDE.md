@@ -7,8 +7,8 @@ Tmux Builder: Web UI for interacting with Claude CLI through isolated tmux sessi
 ## Architecture
 
 **Dual-channel WebSocket:**
-- Channel 1 (port 8000): HTTP REST API for chat - UI ↔ FastAPI ↔ tmux ↔ Claude
-- Channel 2 (port 8001): WebSocket for progress - Claude → notify.sh → ws_server → UI
+- Channel 1 (port 8080): HTTP REST API for chat - UI ↔ FastAPI ↔ tmux ↔ Claude
+- Channel 2 (port 8082): WebSocket for progress - Claude → notify.sh → ws_server → UI
 
 **Key insight:** Channel 2 uses asyncio.Event for instant backend notification (not polling).
 
@@ -93,6 +93,8 @@ message['data'] = summary_content
 
 ## Gotchas
 
+- **websockets v16 API**: Handler is `async def handler(self, websocket)` - access path via `websocket.request.path`
+- **notify.sh port**: Must match ws_server port (8082) - check `notify_template.sh` if WebSocket fails
 - **GUID in localStorage**: Handle "null"/"undefined" strings, not just null
 - **Init ack vs message ack**: Claude sends ack on init AND each message
 - **Prompt caching**: Use timestamped filenames to force fresh reads
@@ -104,10 +106,13 @@ message['data'] = summary_content
 
 ```bash
 # Start backend
-cd backend && uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+cd backend && uvicorn main:app --host 0.0.0.0 --port 8080 --reload
 
 # Start frontend
 cd frontend && npm run dev
+
+# Test notify.sh manually (from session folder)
+./notify.sh status "Testing from CLI"
 
 # Test admin API
 curl http://localhost:8000/api/admin/sessions?filter=all

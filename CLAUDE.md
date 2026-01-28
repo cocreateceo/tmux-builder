@@ -146,3 +146,49 @@ sessions/active/<guid>/
 4. Backend reads `summary.md`, sends to frontend via WebSocket
 5. Frontend displays markdown-rendered summary in chat
 6. Claude calls `./notify.sh done`
+
+## Deployment
+
+### AWS Infrastructure
+
+See `deployment/README.md` for complete documentation.
+
+**Quick Reference:**
+- **CloudFront URL**: https://d3r4k77gnvpmzn.cloudfront.net
+- **EC2 IP**: 184.73.78.154 (may change on restart)
+- **SSH**: `ssh ai-product-studio`
+- **WebSocket**: wss://d3r4k77gnvpmzn.cloudfront.net/ws/{guid}
+
+**Deployment Scripts:**
+```bash
+# Check infrastructure status
+./deployment/aws-setup.sh show-status
+
+# Full deployment to EC2
+./deployment/ec2-deploy.sh deploy
+
+# Restart services only
+./deployment/ec2-deploy.sh restart
+
+# Invalidate CloudFront cache
+./deployment/ec2-deploy.sh invalidate
+```
+
+### Production Ports
+| Service | Port | Notes |
+|---------|------|-------|
+| Frontend | 3001 | serve static dist |
+| Backend API | 8080 | FastAPI |
+| WebSocket | 8082 | ws_server.py (via CloudFront) |
+| Nginx WSS | 8443 | SSL proxy fallback |
+
+## Best Practices
+
+### Infrastructure Changes
+**IMPORTANT:** After making any AWS/infrastructure changes that work:
+1. Document the changes in `deployment/README.md`
+2. Update the deployment scripts if needed
+3. Test the scripts can recreate the infrastructure
+4. Commit the documentation changes
+
+This ensures infrastructure is reproducible and documented.

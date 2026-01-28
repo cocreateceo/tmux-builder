@@ -67,9 +67,11 @@ class ProgressWebSocketServer:
         if guid in self.done_events:
             self.done_events[guid].clear()
 
-    async def handler(self, websocket: WebSocketServerProtocol, path: str):
+    async def handler(self, websocket: WebSocketServerProtocol):
         """Handle incoming WebSocket connections."""
         # Extract GUID from path: /ws/<guid>
+        # websockets v16+ changed API - path is now in websocket.request.path
+        path = websocket.request.path
         parts = path.strip('/').split('/')
         if len(parts) < 2 or parts[0] != 'ws':
             logger.warning(f"Invalid path: {path}")

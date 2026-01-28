@@ -31,7 +31,7 @@ async def send_notification():
         sys.exit(1)
 
     guid = "{{GUID}}"
-    ws_url = f"ws://localhost:8001/ws/{guid}"
+    ws_url = f"ws://localhost:8082/ws/{guid}"
     msg_type = sys.argv[1] if len(sys.argv) > 1 else "status"
     data = sys.argv[2] if len(sys.argv) > 2 else ""
 

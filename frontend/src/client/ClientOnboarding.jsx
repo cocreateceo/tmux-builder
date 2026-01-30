@@ -35,7 +35,7 @@ function OnboardingForm() {
     if (!phone.trim()) return 'Phone number is required';
     // Remove non-digits for counting
     const digitsOnly = phone.replace(/\D/g, '');
-    if (digitsOnly.length < 10) return 'Phone number must have at least 10 digits';
+    if (digitsOnly.length < 7) return 'Phone number must have at least 7 digits';
     if (digitsOnly.length > 15) return 'Phone number is too long';
     return null;
   };

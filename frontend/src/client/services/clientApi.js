@@ -1,6 +1,10 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Auto-detect production vs development
+const isProduction = window.location.hostname.includes('cloudfront.net');
+const API_BASE = isProduction
+  ? `${window.location.protocol}//${window.location.host}`
+  : (import.meta.env.VITE_API_URL || 'http://localhost:8000');
 
 const api = axios.create({
   baseURL: API_BASE,

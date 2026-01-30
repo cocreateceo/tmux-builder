@@ -1,7 +1,31 @@
 import { useState } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
 import { useTheme } from './hooks/useTheme';
-import { Sun, Moon, Rocket, Mail, Phone, User, MessageSquare } from 'lucide-react';
+import { Sun, Moon, Rocket, Mail, Phone, User, MessageSquare, ChevronDown } from 'lucide-react';
+
+// Common country codes
+const countryCodes = [
+  { code: '+1', country: 'US/CA', flag: '🇺🇸' },
+  { code: '+44', country: 'UK', flag: '🇬🇧' },
+  { code: '+91', country: 'IN', flag: '🇮🇳' },
+  { code: '+61', country: 'AU', flag: '🇦🇺' },
+  { code: '+49', country: 'DE', flag: '🇩🇪' },
+  { code: '+33', country: 'FR', flag: '🇫🇷' },
+  { code: '+81', country: 'JP', flag: '🇯🇵' },
+  { code: '+86', country: 'CN', flag: '🇨🇳' },
+  { code: '+65', country: 'SG', flag: '🇸🇬' },
+  { code: '+971', country: 'UAE', flag: '🇦🇪' },
+  { code: '+966', country: 'SA', flag: '🇸🇦' },
+  { code: '+55', country: 'BR', flag: '🇧🇷' },
+  { code: '+52', country: 'MX', flag: '🇲🇽' },
+  { code: '+82', country: 'KR', flag: '🇰🇷' },
+  { code: '+39', country: 'IT', flag: '🇮🇹' },
+  { code: '+34', country: 'ES', flag: '🇪🇸' },
+  { code: '+31', country: 'NL', flag: '🇳🇱' },
+  { code: '+46', country: 'SE', flag: '🇸🇪' },
+  { code: '+41', country: 'CH', flag: '🇨🇭' },
+  { code: '+64', country: 'NZ', flag: '🇳🇿' },
+];
 
 function OnboardingForm() {
   const { theme, toggleTheme } = useTheme();
@@ -11,6 +35,7 @@ function OnboardingForm() {
     phone: '',
     initial_request: '',
   });
+  const [countryCode, setCountryCode] = useState('+1');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
@@ -88,10 +113,16 @@ function OnboardingForm() {
     setError(null);
 
     try {
+      // Combine country code with phone number
+      const submitData = {
+        ...formData,
+        phone: `${countryCode} ${formData.phone}`,
+      };
+
       const response = await fetch('/api/admin/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(submitData),
       });
 
       // Check if response is ok before parsing JSON
@@ -224,26 +255,49 @@ function OnboardingForm() {
                   <label className="block text-sm font-medium dark:text-gray-300 text-gray-700 mb-2">
                     Phone Number
                   </label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5
-                      dark:text-gray-500 text-gray-400" />
-                    <input
-                      type="tel"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleChange}
-                      onBlur={handleBlur}
-                      required
-                      placeholder="+1-555-123-4567"
-                      className={`w-full pl-10 pr-4 py-3 rounded-xl border
-                        dark:bg-[#0a0a0f] dark:text-white
-                        bg-gray-50 text-gray-900
-                        focus:ring-2 focus:ring-indigo-500 focus:border-transparent
-                        placeholder:dark:text-gray-600 placeholder:text-gray-400
-                        ${fieldErrors.phone
-                          ? 'border-red-500 dark:border-red-500'
-                          : 'dark:border-gray-700 border-gray-200'}`}
-                    />
+                  <div className="flex gap-2">
+                    {/* Country Code Selector */}
+                    <div className="relative">
+                      <select
+                        value={countryCode}
+                        onChange={(e) => setCountryCode(e.target.value)}
+                        className="appearance-none w-28 pl-3 pr-8 py-3 rounded-xl border
+                          dark:bg-[#0a0a0f] dark:border-gray-700 dark:text-white
+                          bg-gray-50 border-gray-200 text-gray-900
+                          focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+                          cursor-pointer text-sm"
+                      >
+                        {countryCodes.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.flag} {c.code}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4
+                        dark:text-gray-500 text-gray-400 pointer-events-none" />
+                    </div>
+                    {/* Phone Input */}
+                    <div className="relative flex-1">
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5
+                        dark:text-gray-500 text-gray-400" />
+                      <input
+                        type="tel"
+                        name="phone"
+                        value={formData.phone}
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        required
+                        placeholder="555-123-4567"
+                        className={`w-full pl-10 pr-4 py-3 rounded-xl border
+                          dark:bg-[#0a0a0f] dark:text-white
+                          bg-gray-50 text-gray-900
+                          focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+                          placeholder:dark:text-gray-600 placeholder:text-gray-400
+                          ${fieldErrors.phone
+                            ? 'border-red-500 dark:border-red-500'
+                            : 'dark:border-gray-700 border-gray-200'}`}
+                      />
+                    </div>
                   </div>
                   {fieldErrors.phone && (
                     <p className="mt-1 text-sm text-red-500">{fieldErrors.phone}</p>

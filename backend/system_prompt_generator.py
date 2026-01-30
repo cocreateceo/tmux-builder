@@ -487,7 +487,20 @@ function App() {{
 
 ## WEBSITE FUNCTIONALITY REQUIREMENTS (CRITICAL)
 
-**EVERY website you create MUST have 100% working functionality. No dummy buttons, no placeholder code.**
+**EVERY website you create MUST have 100% working functionality. No dummy buttons, no placeholder code, no empty images.**
+
+### 🚨 ZERO TOLERANCE FOR PLACEHOLDERS
+
+| Placeholder Type | ❌ NEVER | ✅ ALWAYS |
+|-----------------|----------|-----------|
+| **Images** | Empty gray boxes, "Image 1/2/3" | Real Unsplash/Picsum photos |
+| **Gallery items** | "Style 1", "Style 2" | "Classic Fade", "Modern Pompadour" |
+| **Text content** | Lorem ipsum, "Coming soon" | Real descriptive content |
+| **Names** | "John Doe", "Jane Smith" | Realistic names: "Marcus Chen", "Sarah Williams" |
+| **Prices** | "$XX.XX", "TBD" | Real prices: "$45", "$89" |
+| **Testimonials** | Generic praise | Specific, believable reviews |
+
+**If you create ANY placeholder content, the pre-build validation will BLOCK deployment.**
 
 ### Buttons - MUST Have onClick Handlers
 
@@ -519,6 +532,77 @@ function App() {{
 // ✅ DO THIS - Real URL or scroll link
 <a href="https://facebook.com/brand">Facebook</a>
 <a href="#contact">Contact Us</a>  // Scrolls to section
+```
+
+### Images - NO Empty Placeholders (CRITICAL)
+
+**NEVER deploy a website with empty gray boxes or placeholder images. ALWAYS use real images.**
+
+```jsx
+// ❌ NEVER DO THIS - Empty placeholder boxes
+<div className="bg-gray-700 h-64 flex items-center justify-center">
+  <span>Style 1</span>
+</div>
+
+// ❌ NEVER DO THIS - Generic placeholder text
+<div className="gallery-item">Image 1</div>
+<div className="gallery-item">Style 2</div>
+<div className="gallery-item">Photo 3</div>
+
+// ✅ DO THIS - Use Unsplash for real images
+<img
+  src="https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=400&h=300&fit=crop"
+  alt="Classic fade haircut"
+  className="w-full h-64 object-cover rounded-xl"
+/>
+
+// ✅ DO THIS - Use Picsum for placeholder photos (better than empty boxes)
+<img
+  src="https://picsum.photos/seed/haircut1/400/300"
+  alt="Modern pompadour style"
+  className="w-full h-64 object-cover rounded-xl"
+/>
+
+// ✅ DO THIS - Use gradient backgrounds with icons (if no images available)
+<div className="h-64 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center">
+  <ScissorsIcon className="w-16 h-16 text-white/50" />
+</div>
+```
+
+**Image Source Options (in order of preference):**
+
+1. **Unsplash** (best quality, free):
+   - Format: `https://images.unsplash.com/photo-ID?w=WIDTH&h=HEIGHT&fit=crop`
+   - Search at unsplash.com, copy photo ID from URL
+   - Examples by category:
+     - Barber/Hair: `photo-1622286342621-4bd786c2447c`, `photo-1503951914875-452162b0f3f1`
+     - Food: `photo-1504674900247-0877df9cc836`, `photo-1512621776951-a57141f2eefd`
+     - Tech: `photo-1518770660439-4636190af475`, `photo-1531297484001-80022131f5a1`
+     - Nature: `photo-1506905925346-21bda4d32df4`, `photo-1469474968028-56623f02e42e`
+
+2. **Picsum** (random quality photos):
+   - Format: `https://picsum.photos/seed/UNIQUE_NAME/WIDTH/HEIGHT`
+   - Use descriptive seeds: `seed/haircut1/400/300`, `seed/product-hero/800/600`
+
+3. **Gradient + Icon** (when images don't fit):
+   - Use beautiful gradients with relevant SVG icons
+   - Good for abstract concepts, features, services
+
+**Gallery/Portfolio Requirements:**
+
+```jsx
+// ✅ CORRECT - Gallery with real images and descriptive names
+const galleryItems = [
+  {{ id: 1, image: "https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=400&h=300&fit=crop", title: "Classic Fade", description: "Clean tapered sides with textured top" }},
+  {{ id: 2, image: "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=400&h=300&fit=crop", title: "Modern Pompadour", description: "Volume and style with slicked sides" }},
+  {{ id: 3, image: "https://images.unsplash.com/photo-1605497788044-5a32c7078486?w=400&h=300&fit=crop", title: "Textured Crop", description: "Low maintenance with natural movement" }},
+];
+
+// ❌ WRONG - Never use generic names
+const galleryItems = [
+  {{ id: 1, title: "Style 1" }},  // NO!
+  {{ id: 2, title: "Style 2" }},  // NO!
+];
 ```
 
 ### Required State Management
@@ -677,13 +761,39 @@ if [ "$SIZE" -lt 2000 ]; then
   MISSING=1
 fi
 
+# === IMAGE/PLACEHOLDER CHECKS (CRITICAL - Prevents empty content) ===
+# Check for empty placeholder boxes (gray backgrounds with generic text)
+if grep -qE 'bg-gray-[0-9]+"[^>]*>\\s*<span[^>]*>(Style|Image|Photo|Item)\\s*[0-9]+' code/src/App.jsx; then
+  echo "❌ PLACEHOLDER DETECTED: Empty boxes with 'Style 1/2/3' text - use real images!"
+  MISSING=1
+fi
+
+# Check for generic placeholder names in arrays/data
+if grep -qE "title:\\s*['\"]\\s*(Style|Image|Photo|Item)\\s*[0-9]+['\"]" code/src/App.jsx; then
+  echo "❌ PLACEHOLDER DETECTED: Generic names like 'Style 1' - use descriptive names!"
+  MISSING=1
+fi
+
+# Check if gallery/portfolio exists but has no real images
+if grep -q "gallery\|Gallery\|portfolio\|Portfolio" code/src/App.jsx; then
+  if ! grep -qE "unsplash\\.com|picsum\\.photos|images\\.[a-z]+\\.com" code/src/App.jsx; then
+    echo "⚠️ WARNING: Gallery found but no image URLs detected - ensure real images are used"
+  fi
+fi
+
+# Check for empty image containers (divs pretending to be images)
+EMPTY_IMAGE_DIVS=$(grep -cE '<div[^>]*className="[^"]*h-[0-9]+[^"]*"[^>]*>\\s*</div>' code/src/App.jsx || echo "0")
+if [ "$EMPTY_IMAGE_DIVS" -gt 3 ]; then
+  echo "⚠️ WARNING: Found $EMPTY_IMAGE_DIVS empty height divs - may be placeholder images"
+fi
+
 if [ $MISSING -eq 1 ]; then
-  ./notify.sh error "❌ INCOMPLETE CODE - Missing sections or bad layout. Deployment BLOCKED."
-  echo "FIX: Complete all missing sections and fix layout issues before proceeding"
+  ./notify.sh error "❌ INCOMPLETE CODE - Missing sections, bad layout, or placeholder content. Deployment BLOCKED."
+  echo "FIX: Complete all missing sections, fix layout issues, and replace ALL placeholders before proceeding"
   # DO NOT PROCEED - Fix issues first
 fi
 
-./notify.sh status "✅ All sections and layout validated"
+./notify.sh status "✅ All sections, layout, and content validated"
 ```
 
 **🛑 If ANY section is missing: STOP, FIX, then re-validate. NEVER deploy incomplete code.**
@@ -811,13 +921,24 @@ cat > summary.md << 'EOF'
 | Pricing "Buy" buttons | Shows confirmation modal | Integrate Stripe checkout |
 | Live chat widget | Not implemented | Add Intercom/Crisp script |
 
+### ✅ Image Requirements Met
+**All images in this website use real photos from Unsplash/Picsum. NO empty placeholder boxes.**
+
+| Section | Image Source | Count |
+|---------|-------------|-------|
+| Hero | Unsplash | 1 |
+| Gallery/Portfolio | Unsplash | X images |
+| Team/About | Unsplash/Picsum | X images |
+| Testimonials | Gradient avatars | X |
+
 ### 📋 Before Going Live Checklist
 - [ ] Purchase and configure custom domain
 - [ ] Set up SSL certificate (if not using CloudFront)
 - [ ] Configure email sending service
-- [ ] Replace placeholder images with real photos
-- [ ] Update contact information
+- [ ] ✅ All images use real photos (Unsplash/Picsum) - VERIFIED
+- [ ] Update contact information with real details
 - [ ] Add real social media links
+- [ ] Replace demo testimonials with real customer reviews
 - [ ] Set up analytics tracking
 - [ ] Add privacy policy and terms pages
 - [ ] Configure cookie consent (GDPR compliance)

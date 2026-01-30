@@ -13,14 +13,77 @@ function OnboardingForm() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState({});
+
+  // Validation functions
+  const validateName = (name) => {
+    if (!name.trim()) return 'Name is required';
+    if (!/^[a-zA-Z\s]+$/.test(name)) return 'Name should only contain letters and spaces';
+    if (name.trim().length < 2) return 'Name must be at least 2 characters';
+    return null;
+  };
+
+  const validateEmail = (email) => {
+    if (!email.trim()) return 'Email is required';
+    // Full email validation: user@domain.extension
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email)) return 'Please enter a valid email (e.g., name@example.com)';
+    return null;
+  };
+
+  const validatePhone = (phone) => {
+    if (!phone.trim()) return 'Phone number is required';
+    // Remove non-digits for counting
+    const digitsOnly = phone.replace(/\D/g, '');
+    if (digitsOnly.length < 10) return 'Phone number must have at least 10 digits';
+    if (digitsOnly.length > 15) return 'Phone number is too long';
+    return null;
+  };
+
+  const validateField = (name, value) => {
+    switch (name) {
+      case 'name': return validateName(value);
+      case 'email': return validateEmail(value);
+      case 'phone': return validatePhone(value);
+      default: return null;
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+
+    // Clear field error when user starts typing
+    if (fieldErrors[name]) {
+      setFieldErrors(prev => ({ ...prev, [name]: null }));
+    }
+  };
+
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    const error = validateField(name, value);
+    if (error) {
+      setFieldErrors(prev => ({ ...prev, [name]: error }));
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Validate all fields
+    const errors = {
+      name: validateName(formData.name),
+      email: validateEmail(formData.email),
+      phone: validatePhone(formData.phone),
+    };
+
+    // Check if any errors exist
+    const hasErrors = Object.values(errors).some(err => err !== null);
+    if (hasErrors) {
+      setFieldErrors(errors);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -107,15 +170,22 @@ function OnboardingForm() {
                       name="name"
                       value={formData.name}
                       onChange={handleChange}
+                      onBlur={handleBlur}
                       required
                       placeholder="John Doe"
-                      className="w-full pl-10 pr-4 py-3 rounded-xl border
-                        dark:bg-[#0a0a0f] dark:border-gray-700 dark:text-white
-                        bg-gray-50 border-gray-200 text-gray-900
+                      className={`w-full pl-10 pr-4 py-3 rounded-xl border
+                        dark:bg-[#0a0a0f] dark:text-white
+                        bg-gray-50 text-gray-900
                         focus:ring-2 focus:ring-indigo-500 focus:border-transparent
-                        placeholder:dark:text-gray-600 placeholder:text-gray-400"
+                        placeholder:dark:text-gray-600 placeholder:text-gray-400
+                        ${fieldErrors.name
+                          ? 'border-red-500 dark:border-red-500'
+                          : 'dark:border-gray-700 border-gray-200'}`}
                     />
                   </div>
+                  {fieldErrors.name && (
+                    <p className="mt-1 text-sm text-red-500">{fieldErrors.name}</p>
+                  )}
                 </div>
 
                 {/* Email */}
@@ -131,15 +201,22 @@ function OnboardingForm() {
                       name="email"
                       value={formData.email}
                       onChange={handleChange}
+                      onBlur={handleBlur}
                       required
                       placeholder="john@example.com"
-                      className="w-full pl-10 pr-4 py-3 rounded-xl border
-                        dark:bg-[#0a0a0f] dark:border-gray-700 dark:text-white
-                        bg-gray-50 border-gray-200 text-gray-900
+                      className={`w-full pl-10 pr-4 py-3 rounded-xl border
+                        dark:bg-[#0a0a0f] dark:text-white
+                        bg-gray-50 text-gray-900
                         focus:ring-2 focus:ring-indigo-500 focus:border-transparent
-                        placeholder:dark:text-gray-600 placeholder:text-gray-400"
+                        placeholder:dark:text-gray-600 placeholder:text-gray-400
+                        ${fieldErrors.email
+                          ? 'border-red-500 dark:border-red-500'
+                          : 'dark:border-gray-700 border-gray-200'}`}
                     />
                   </div>
+                  {fieldErrors.email && (
+                    <p className="mt-1 text-sm text-red-500">{fieldErrors.email}</p>
+                  )}
                 </div>
 
                 {/* Phone */}
@@ -155,15 +232,22 @@ function OnboardingForm() {
                       name="phone"
                       value={formData.phone}
                       onChange={handleChange}
+                      onBlur={handleBlur}
                       required
                       placeholder="+1-555-123-4567"
-                      className="w-full pl-10 pr-4 py-3 rounded-xl border
-                        dark:bg-[#0a0a0f] dark:border-gray-700 dark:text-white
-                        bg-gray-50 border-gray-200 text-gray-900
+                      className={`w-full pl-10 pr-4 py-3 rounded-xl border
+                        dark:bg-[#0a0a0f] dark:text-white
+                        bg-gray-50 text-gray-900
                         focus:ring-2 focus:ring-indigo-500 focus:border-transparent
-                        placeholder:dark:text-gray-600 placeholder:text-gray-400"
+                        placeholder:dark:text-gray-600 placeholder:text-gray-400
+                        ${fieldErrors.phone
+                          ? 'border-red-500 dark:border-red-500'
+                          : 'dark:border-gray-700 border-gray-200'}`}
                     />
                   </div>
+                  {fieldErrors.phone && (
+                    <p className="mt-1 text-sm text-red-500">{fieldErrors.phone}</p>
+                  )}
                 </div>
 
                 {/* Initial Request */}

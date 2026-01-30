@@ -100,6 +100,42 @@ UI ← ActivityPanel ← useProgressSocket ← ws_server:8082 ← notify.sh
 6. [ ] Test `activity_log.jsonl` is created and persisted
 7. [ ] Test page refresh loads chat history AND activity history
 
+## Session 2 (Later Jan 29)
+
+### Issues Fixed
+
+5. **WebSocket Path API Compatibility** - Fixed in `backend/ws_server.py`
+   - **Symptom:** Server error 1011 when notify.sh sent messages
+   - **Root Cause:** Code used `websocket.request.path` (v16+ API) but system has websockets v12
+   - **Fix:** Updated to use `getattr(websocket, 'path', None) or getattr(websocket.request, 'path', '/')` for both v12 and v16+ compatibility
+   - **Result:** `activity_log.jsonl` now created and persisted correctly
+
+6. **Wrong Backend Directory** - Operational fix
+   - **Symptom:** Activity panel empty, old code running
+   - **Root Cause:** Old uvicorn process from `/mnt/c/Development/Builder-CLI/tmux-builder/backend` was holding ports
+   - **Fix:** Killed old process, restarted from correct directory `/mnt/c/Development/Builder-CLI/tmux-builder-ui/tmux-builder/backend`
+
+### Commits Made
+```
+0bf7067 fix: resolve critical client dashboard bugs and add onboarding flow
+9e0289f fix(ws_server): support websockets v12 path API
+e04cbb3 docs: update websockets API gotcha for v12 compatibility
+```
+
+### Testing Completed
+- [x] Backend restarted from correct directory
+- [x] Port 8082 bound by new ws_server
+- [x] notify.sh successfully sends messages
+- [x] activity_log.jsonl created and persisted
+- [x] Multiple message types (status, progress, working) all logged
+
+### UI Routes Summary
+| Route | Component | Purpose |
+|-------|-----------|---------|
+| `/` | SplitChatView | Admin dashboard with password protection, session management |
+| `/client_input` or `/onboard` | ClientOnboarding | New client intake form |
+| `/client?guid=xxx` | ClientApp | Client project dashboard |
+
 ## Notes for Next Assistant
 
 - The codebase uses dual-channel architecture - don't conflate HTTP chat with WebSocket progress
@@ -107,3 +143,4 @@ UI ← ActivityPanel ← useProgressSocket ← ws_server:8082 ← notify.sh
 - The client UI is separate from admin UI - different routes, different components
 - Check `CLAUDE.md` for architecture overview before making changes
 - Port 8080 is backend API, port 8082 is WebSocket server - both must be running
+- **IMPORTANT:** Verify backend is running from correct directory: `/mnt/c/Development/Builder-CLI/tmux-builder-ui/tmux-builder/backend`

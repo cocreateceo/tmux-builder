@@ -178,6 +178,34 @@ When something fails:
 
 Do NOT stop and ask for help. Fix it yourself.
 
+### IF CODE GENERATION STOPS OR ERRORS
+
+If you encounter an error or interruption while generating code:
+
+1. **DO NOT deploy partial code**
+2. **Check what exists:**
+   ```bash
+   ls -la code/src/
+   cat code/src/App.jsx | head -50
+   ```
+3. **Identify missing pieces** - Compare against required sections
+4. **Complete the missing sections** before proceeding
+5. **Re-validate** using the pre-build checks
+
+**Common incomplete generation signs:**
+- App.jsx ends abruptly (no closing tags)
+- Missing import statements
+- Only 1-2 sections instead of 5+
+- No Footer component
+- File size unusually small (<2KB for App.jsx)
+
+**Quick file size check:**
+```bash
+# App.jsx should typically be 5-15KB for a complete landing page
+wc -c code/src/App.jsx
+# If < 2000 bytes, likely incomplete - DO NOT BUILD OR DEPLOY
+```
+
 ---
 
 ## FILE ORGANIZATION
@@ -246,18 +274,54 @@ You have access to skills and agents at these absolute paths:
 4. **Responsive Design** - Works on mobile, tablet, desktop
 5. **Beautiful Theme** - Not generic Bootstrap defaults
 
+### MANDATORY: Website Section Verification (CRITICAL)
+
+**Every website MUST have these sections visible and properly rendered:**
+
+- [ ] **Navigation/Header** - Logo + menu links visible at top
+- [ ] **Hero Section** - Main headline, subtext, CTA button visible FIRST on page load
+- [ ] **Content Sections** - Features/About/Services (at least 2 content sections)
+- [ ] **Social Proof** - Testimonials, stats, or client logos section
+- [ ] **Contact/CTA Section** - Form or call-to-action area
+- [ ] **Footer** - Links, copyright, spans FULL viewport width
+
+**🛑 STOP AND FIX if any section is missing or not visible! DO NOT DEPLOY incomplete websites.**
+
+### MANDATORY: Layout Verification (CRITICAL)
+
+Open the deployed URL and visually verify:
+
+- [ ] Page starts at the TOP (hero visible first, NOT contact or footer)
+- [ ] All sections stack vertically in correct order (Hero → Content → Contact → Footer)
+- [ ] No large empty white spaces between sections
+- [ ] Content is horizontally centered (not cut off at edges)
+- [ ] Footer spans full viewport width (edge to edge)
+- [ ] Two-column layouts have BOTH columns visible and aligned
+
+**If layout is broken, check for:**
+```
+1. Missing parent container/wrapper div
+2. Incorrect flexbox: check flex-direction, justify-content, align-items
+3. Missing max-width or margin:auto on content containers
+4. CSS grid issues: check grid-template-columns
+5. Overflow hidden cutting off content
+6. Wrong section order in App.jsx
+```
+
 ### Deployment Checklist
 
 Before calling `./notify.sh done`:
 
 - [ ] Site loads at CloudFront URL
+- [ ] **Page scrolled to TOP - Hero section visible first**
+- [ ] **ALL sections render in correct order**
 - [ ] No console errors
 - [ ] All images display
 - [ ] Fonts load correctly
 - [ ] Mobile layout works
 - [ ] Links/buttons function
 - [ ] CORS headers present on API/assets
-- [ ] Screenshot captured as proof
+- [ ] Screenshot captured as proof (showing hero at top)
 
 ### Common Issues to Fix
 
@@ -301,14 +365,116 @@ export AWS_PROFILE=sunwaretech
 - No console.logs in production code
 - Proper error boundaries
 
-### Design Quality
+### NEXT-GENERATION WEBSITE DESIGN (MANDATORY)
 
-- Custom color palette (not Bootstrap blue)
-- Custom fonts (Google Fonts)
-- Proper spacing and typography
-- Hover states on interactive elements
-- Smooth transitions
-- Accessible (proper contrast, focus states)
+**Your websites must look like 2025-2026 cutting-edge designs, NOT 2015 Bootstrap templates.**
+
+#### Required Modern UI Elements:
+
+| Element | Old/Generic ❌ | Next-Gen ✅ |
+|---------|---------------|-------------|
+| Background | Solid white | Gradient meshes, glassmorphism, aurora effects |
+| Cards | Flat boxes with borders | Glass cards with blur, subtle shadows, hover lift |
+| Buttons | Basic colored rectangles | Gradient fills, glow effects, micro-animations |
+| Typography | Single font, basic sizes | Font pairing (display + body), variable weights |
+| Colors | Bootstrap blue, basic palette | Rich gradients, vibrant accents, dark mode support |
+| Animations | None or basic fade | Scroll-triggered, parallax, floating elements |
+| Icons | Font Awesome defaults | Custom SVG, animated icons, Lucide/Heroicons |
+| Spacing | Cramped, inconsistent | Generous whitespace, rhythm, breathing room |
+
+#### Required Visual Effects (use at least 4):
+
+- [ ] **Glassmorphism** - Frosted glass cards with backdrop-blur
+- [ ] **Gradient meshes** - Multi-color flowing backgrounds
+- [ ] **Micro-interactions** - Button hover scales, icon animations
+- [ ] **Scroll animations** - Elements fade/slide in on scroll
+- [ ] **Floating elements** - Subtle movement, parallax layers
+- [ ] **Glow effects** - Soft colored shadows on hover
+- [ ] **Aurora/blob backgrounds** - Animated gradient shapes
+- [ ] **Text gradients** - Gradient fills on headlines
+- [ ] **Particle effects** - Floating dots/shapes (subtle)
+- [ ] **Smooth transitions** - 300ms+ easing on all interactions
+
+#### Modern Code Patterns:
+
+```jsx
+// Glassmorphism card
+<div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-2xl shadow-xl">
+
+// Gradient text headline
+<h1 className="bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500
+              bg-clip-text text-transparent text-5xl font-bold">
+
+// Glow button with hover effect
+<button className="bg-gradient-to-r from-indigo-500 to-purple-600
+                   hover:shadow-lg hover:shadow-indigo-500/50
+                   transition-all duration-300 hover:scale-105
+                   px-8 py-4 rounded-xl font-semibold text-white">
+
+// Animated background gradient
+<div className="absolute inset-0 bg-gradient-to-br from-purple-900 via-indigo-900 to-black">
+  <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))]
+                  from-purple-500/20 via-transparent to-transparent animate-pulse">
+```
+
+#### Design Inspiration (Study These):
+- Vercel, Linear, Raycast, Stripe, Framer websites
+- Awwwards site of the day winners
+- Dribbble top web design shots
+- **NOT:** Basic Bootstrap, default Material UI, WordPress themes
+
+### Layout Structure (CRITICAL - Prevents Broken UIs)
+
+**Always use this App.jsx structure:**
+
+```jsx
+function App() {{
+  return (
+    <div className="min-h-screen flex flex-col">
+      <Header />      {{/* Fixed or sticky navigation at top */}}
+      <main className="flex-1">
+        <HeroSection />       {{/* FIRST - visible immediately on load */}}
+        <FeaturesSection />   {{/* id="features" for scroll navigation */}}
+        <AboutSection />      {{/* id="about" */}}
+        <TestimonialsSection />{{/* Social proof */}}
+        <ContactSection />    {{/* id="contact" - form or CTA */}}
+      </main>
+      <Footer />      {{/* Full width, at bottom */}}
+    </div>
+  );
+}}
+```
+
+**Container pattern for sections (CORRECT):**
+
+```jsx
+// ✅ CORRECT - Centered content, full-width background
+<section className="w-full bg-gray-900 py-20">
+  <div className="max-w-6xl mx-auto px-4">
+    {{/* Your content here - centered with padding */}}
+  </div>
+</section>
+
+// ❌ WRONG - Background won't span full width, content may be cut off
+<section className="max-w-6xl">
+  {{/* This breaks layout! */}}
+</section>
+```
+
+**Two-column layouts (Contact sections):**
+
+```jsx
+// ✅ CORRECT - Responsive grid
+<div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+  <div>{{/* Left: Contact info */}}</div>
+  <div>{{/* Right: Form */}}</div>
+</div>
+
+// ❌ WRONG - Not responsive, columns may not align
+<div className="flex">
+  <div className="w-1/2">...</div>
+</div>
+```
 
 ### Testing
 
@@ -467,6 +633,40 @@ const handleSubmit = (e) => {{
 
 ---
 
+## PRE-BUILD VALIDATION (MANDATORY - DO NOT SKIP)
+
+**Before running `npm run build`, verify these sections exist in App.jsx:**
+
+```bash
+# Run these checks - ALL must pass before building
+./notify.sh working "Validating code completeness"
+
+MISSING=0
+grep -q "Hero\|hero\|HeroSection" code/src/App.jsx || {{ echo "❌ MISSING: Hero Section"; MISSING=1; }}
+grep -q "Footer" code/src/App.jsx || {{ echo "❌ MISSING: Footer"; MISSING=1; }}
+grep -q "Contact\|contact\|ContactSection" code/src/App.jsx || {{ echo "❌ MISSING: Contact Section"; MISSING=1; }}
+grep -q "nav\|Nav\|Header\|header" code/src/App.jsx || {{ echo "❌ MISSING: Navigation"; MISSING=1; }}
+
+# Check file size (should be 5-15KB for complete landing page)
+SIZE=$(wc -c < code/src/App.jsx)
+if [ "$SIZE" -lt 2000 ]; then
+  echo "❌ App.jsx too small ($SIZE bytes) - likely incomplete"
+  MISSING=1
+fi
+
+if [ $MISSING -eq 1 ]; then
+  ./notify.sh error "❌ INCOMPLETE CODE - Missing sections. Deployment BLOCKED."
+  echo "FIX: Complete all missing sections before proceeding"
+  # DO NOT PROCEED - Fix missing sections first
+fi
+
+./notify.sh status "✅ All sections validated"
+```
+
+**🛑 If ANY section is missing: STOP, FIX, then re-validate. NEVER deploy incomplete code.**
+
+---
+
 ## EXAMPLE WORKFLOW
 
 User requests: "Build a landing page for a SaaS product"
@@ -474,38 +674,133 @@ User requests: "Build a landing page for a SaaS product"
 ```bash
 ./notify.sh ack
 ./notify.sh status "Analyzing requirements"
-./notify.sh working "Creating React application"
-# ... create code ...
-./notify.sh progress 30
+./notify.sh working "Creating React application with next-gen design"
+# ... create code with ALL sections: Header, Hero, Features, About, Testimonials, Contact, Footer ...
+./notify.sh progress 20
+
+# ═══════════════════════════════════════════════════════════
+# GATE 1: PRE-BUILD VALIDATION (MANDATORY)
+# ═══════════════════════════════════════════════════════════
+./notify.sh working "Validating code completeness"
+# Check all sections exist (Hero, Footer, Contact, Nav)
+# Check file size > 2KB
+# If validation fails → STOP and fix before proceeding
+./notify.sh progress 25
+
 ./notify.sh working "Building production bundle"
-# ... npm run build ...
+cd code && npm run build
+./notify.sh progress 40
+
+# ═══════════════════════════════════════════════════════════
+# GATE 2: POST-BUILD VALIDATION (MANDATORY)
+# ═══════════════════════════════════════════════════════════
+./notify.sh working "Verifying build output"
+# Check dist/index.html exists and has content
+BUILD_SIZE=$(du -k code/dist/index.html | cut -f1)
+if [ "$BUILD_SIZE" -lt 2 ]; then
+  ./notify.sh error "Build failed - output too small"
+  # STOP - do not deploy broken build
+fi
+./notify.sh status "✅ Build validated"
 ./notify.sh progress 50
+
 ./notify.sh working "Deploying to AWS"
 # ... S3 upload, CloudFront setup ...
-./notify.sh progress 80
-./notify.sh working "Testing deployment"
-# ... verify CORS, assets, responsiveness ...
-./notify.sh progress 95
-./notify.sh deployed "https://d123456.cloudfront.net"
+./notify.sh progress 70
+
+# ═══════════════════════════════════════════════════════════
+# GATE 3: POST-DEPLOY VISUAL VERIFICATION (MANDATORY)
+# ═══════════════════════════════════════════════════════════
+./notify.sh working "Verifying deployment visually"
+# CRITICAL CHECKS:
+# 1. Open URL - Hero section visible FIRST (page at top)
+# 2. All sections render in order: Hero → Features → About → Testimonials → Contact → Footer
+# 3. No layout issues (cut-off content, empty spaces)
+# 4. Footer at bottom, full width
+# If ANY issue found → FIX before proceeding
+./notify.sh progress 85
+
+./notify.sh working "Capturing verification screenshot"
 ./notify.sh screenshot "docs/deployment-proof.png"
-# Write formatted summary
+# Screenshot MUST show hero section (page scrolled to top)
+./notify.sh progress 90
+
+./notify.sh deployed "https://d123456.cloudfront.net"
+./notify.sh progress 95
+
+# Write formatted summary with FEATURE COMPLETENESS REPORT
 cat > summary.md << 'EOF'
-## SaaS Landing Page Complete
+## 🚀 SaaS Landing Page Complete
 
-### Features Built:
-- Hero section with animated CTA button
-- Features grid (6 feature cards with icons)
-- Pricing table (3 tiers: Free, Pro, Enterprise)
-- Contact form with email validation
-- Mobile-responsive design
+### ✨ Next-Gen Design Features
+- Glassmorphism cards with backdrop-blur
+- Gradient mesh background with aurora effects
+- Micro-interactions on all buttons (hover scale + glow)
+- Scroll-triggered animations
+- Text gradients on headlines
+- Modern font pairing (Inter + Space Grotesk)
 
-### Technical Details:
+### 📱 Sections Built
+- **Hero** - Animated headline, dual CTA buttons, floating elements
+- **Features** - 6 glass cards with hover effects
+- **Pricing** - 3-tier table with popular plan highlight
+- **Testimonials** - Customer reviews with star ratings
+- **Contact** - Form with validation + success modal
+- **Footer** - Full-width with social links
+
+### 🛠 Technical Stack
 - React 18 with Vite
-- Tailwind CSS for styling
+- Tailwind CSS + custom animations
 - Deployed to AWS CloudFront
 
-**Live URL:** https://d123456.cloudfront.net
+**🔗 Live URL:** https://d123456.cloudfront.net
+
+---
+
+## Feature Completeness Report
+
+### ✅ Fully Working (No Setup Needed)
+- Responsive navigation with mobile hamburger menu
+- Hero section with animated CTAs
+- Feature cards with hover effects
+- Testimonial carousel/grid
+- Contact form with validation (saves to localStorage)
+- Footer with social links
+- Dark/light theme toggle (if implemented)
+- Smooth scroll navigation
+
+### ⚙️ Requires External Configuration
+
+| Feature | Service Needed | How to Configure |
+|---------|----------------|------------------|
+| Contact form emails | Email API (SendGrid/Mailgun) | Add API key, create send endpoint |
+| Payment processing | Stripe/PayPal | Add API keys, configure webhooks |
+| User authentication | Auth provider (Firebase/Auth0) | Setup project, add SDK |
+| Database storage | Database (Supabase/MongoDB) | Create DB, add connection string |
+| Analytics | Google Analytics/Plausible | Add tracking script |
+
+### 🚫 Demo/Placeholder Features
+
+| Feature | Current Behavior | To Make Real |
+|---------|------------------|--------------|
+| "Get Started" button | Shows success toast | Connect to signup flow |
+| Newsletter signup | Saves to localStorage | Connect to Mailchimp/ConvertKit |
+| Pricing "Buy" buttons | Shows confirmation modal | Integrate Stripe checkout |
+| Live chat widget | Not implemented | Add Intercom/Crisp script |
+
+### 📋 Before Going Live Checklist
+- [ ] Purchase and configure custom domain
+- [ ] Set up SSL certificate (if not using CloudFront)
+- [ ] Configure email sending service
+- [ ] Replace placeholder images with real photos
+- [ ] Update contact information
+- [ ] Add real social media links
+- [ ] Set up analytics tracking
+- [ ] Add privacy policy and terms pages
+- [ ] Configure cookie consent (GDPR compliance)
+- [ ] Set up error monitoring (Sentry)
 EOF
+
 ./notify.sh summary
 ./notify.sh done
 ```

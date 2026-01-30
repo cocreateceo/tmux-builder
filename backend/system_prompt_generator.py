@@ -642,12 +642,35 @@ const handleSubmit = (e) => {{
 ./notify.sh working "Validating code completeness"
 
 MISSING=0
+
+# === SECTION CHECKS ===
 grep -q "Hero\|hero\|HeroSection" code/src/App.jsx || {{ echo "❌ MISSING: Hero Section"; MISSING=1; }}
 grep -q "Footer" code/src/App.jsx || {{ echo "❌ MISSING: Footer"; MISSING=1; }}
 grep -q "Contact\|contact\|ContactSection" code/src/App.jsx || {{ echo "❌ MISSING: Contact Section"; MISSING=1; }}
 grep -q "nav\|Nav\|Header\|header" code/src/App.jsx || {{ echo "❌ MISSING: Navigation"; MISSING=1; }}
 
-# Check file size (should be 5-15KB for complete landing page)
+# === WIDTH/LAYOUT CHECKS (CRITICAL - Prevents viewport issues) ===
+# Check that root App component uses min-h-screen (full height)
+grep -q "min-h-screen" code/src/App.jsx || {{ echo "❌ MISSING: min-h-screen on root - page won't fill viewport"; MISSING=1; }}
+
+# Check for WRONG patterns that cause width issues
+if grep -q 'className="max-w-\|className="container\s' code/src/App.jsx | grep -v "mx-auto"; then
+  echo "⚠️ WARNING: Found max-width without mx-auto - may cause alignment issues"
+fi
+
+# Check that sections use w-full pattern
+SECTIONS_WITH_WIDTH=$(grep -c "w-full\|width: 100%\|width:100%" code/src/App.jsx)
+if [ "$SECTIONS_WITH_WIDTH" -lt 3 ]; then
+  echo "⚠️ WARNING: Few sections have w-full - sections may not span viewport"
+fi
+
+# Check for common BAD patterns that break layout
+if grep -qE '<div className="(max-w-|container)[^"]*">\s*<(Header|Nav|Hero|Footer)' code/src/App.jsx; then
+  echo "❌ BAD PATTERN: Header/Hero/Footer wrapped in max-width container - WILL BREAK LAYOUT"
+  MISSING=1
+fi
+
+# === FILE SIZE CHECK ===
 SIZE=$(wc -c < code/src/App.jsx)
 if [ "$SIZE" -lt 2000 ]; then
   echo "❌ App.jsx too small ($SIZE bytes) - likely incomplete"
@@ -655,12 +678,12 @@ if [ "$SIZE" -lt 2000 ]; then
 fi
 
 if [ $MISSING -eq 1 ]; then
-  ./notify.sh error "❌ INCOMPLETE CODE - Missing sections. Deployment BLOCKED."
-  echo "FIX: Complete all missing sections before proceeding"
-  # DO NOT PROCEED - Fix missing sections first
+  ./notify.sh error "❌ INCOMPLETE CODE - Missing sections or bad layout. Deployment BLOCKED."
+  echo "FIX: Complete all missing sections and fix layout issues before proceeding"
+  # DO NOT PROCEED - Fix issues first
 fi
 
-./notify.sh status "✅ All sections validated"
+./notify.sh status "✅ All sections and layout validated"
 ```
 
 **🛑 If ANY section is missing: STOP, FIX, then re-validate. NEVER deploy incomplete code.**

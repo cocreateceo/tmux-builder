@@ -121,7 +121,7 @@ message['data'] = summary_content
 
 ## Gotchas
 
-- **websockets v16 API**: Handler is `async def handler(self, websocket)` - access path via `websocket.request.path`
+- **websockets API**: v12 uses `websocket.path`, v16+ uses `websocket.request.path` - code handles both
 - **notify.sh port**: Must match ws_server port (8082) - check `notify_template.sh` if WebSocket fails
 - **GUID in localStorage**: Handle "null"/"undefined" strings, not just null
 - **Init ack vs message ack**: Claude sends ack on init AND each message

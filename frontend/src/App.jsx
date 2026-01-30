@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react';
 // Lazy load client and admin views
 const SplitChatView = lazy(() => import('./components/SplitChatView'));
 const ClientApp = lazy(() => import('./client/ClientApp'));
+const ClientOnboarding = lazy(() => import('./client/ClientOnboarding'));
 
 function LoadingFallback() {
   return (
@@ -13,12 +14,27 @@ function LoadingFallback() {
 }
 
 function App() {
-  // Check if we're on the client route
-  const isClientRoute = window.location.pathname.startsWith('/client');
+  // Normalize pathname (remove trailing slash)
+  const pathname = window.location.pathname.replace(/\/$/, '') || '/';
+
+  // Route to appropriate view
+  // Order matters: check specific routes before prefix matches
+  const getView = () => {
+    // Onboarding routes (check BEFORE /client prefix match)
+    if (pathname === '/client_input' || pathname === '/onboard') {
+      return <ClientOnboarding />;
+    }
+    // Client dashboard (any path starting with /client)
+    if (pathname.startsWith('/client')) {
+      return <ClientApp />;
+    }
+    // Admin view (default)
+    return <SplitChatView />;
+  };
 
   return (
     <Suspense fallback={<LoadingFallback />}>
-      {isClientRoute ? <ClientApp /> : <SplitChatView />}
+      {getView()}
     </Suspense>
   );
 }

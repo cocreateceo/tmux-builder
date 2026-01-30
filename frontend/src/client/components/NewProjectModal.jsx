@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Sparkles } from 'lucide-react';
+import { X, Sparkles, User, Mail, Phone, AlertCircle } from 'lucide-react';
 
 const QUICK_STARTS = [
   { label: 'Landing Page', icon: '🎨', prompt: 'Build me a beautiful landing page with hero, features, pricing, and testimonials sections' },
@@ -8,9 +8,10 @@ const QUICK_STARTS = [
   { label: 'Mobile App', icon: '📱', prompt: 'Create a mobile-responsive web app with native-like navigation and gestures' },
 ];
 
-export function NewProjectModal({ isOpen, onClose, onCreate }) {
+export function NewProjectModal({ isOpen, onClose, onCreate, client }) {
   const [request, setRequest] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   if (!isOpen) return null;
 
@@ -19,12 +20,16 @@ export function NewProjectModal({ isOpen, onClose, onCreate }) {
     if (!request.trim()) return;
 
     setLoading(true);
+    setError(null);
+
     try {
       await onCreate(request.trim());
       setRequest('');
+      setError(null);
       onClose();
     } catch (err) {
       console.error('Failed to create project:', err);
+      setError(err.message || 'Failed to create project. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -32,6 +37,13 @@ export function NewProjectModal({ isOpen, onClose, onCreate }) {
 
   const handleQuickStart = (prompt) => {
     setRequest(prompt);
+    setError(null);
+  };
+
+  const handleClose = () => {
+    setError(null);
+    setRequest('');
+    onClose();
   };
 
   return (
@@ -39,7 +51,7 @@ export function NewProjectModal({ isOpen, onClose, onCreate }) {
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={handleClose}
       />
 
       {/* Modal */}
@@ -53,7 +65,7 @@ export function NewProjectModal({ isOpen, onClose, onCreate }) {
             Start New Project
           </h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1 rounded-lg dark:hover:bg-gray-700 hover:bg-gray-100"
           >
             <X className="w-5 h-5 dark:text-gray-400 text-gray-500" />
@@ -62,6 +74,44 @@ export function NewProjectModal({ isOpen, onClose, onCreate }) {
 
         {/* Content */}
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {/* Client info (read-only) */}
+          {client && (
+            <div className="grid grid-cols-1 gap-3 p-3 rounded-lg
+              dark:bg-[#12121a] bg-gray-50 border dark:border-gray-700 border-gray-200">
+              <div className="flex items-center gap-2">
+                <User className="w-4 h-4 dark:text-gray-500 text-gray-400" />
+                <span className="text-sm dark:text-gray-400 text-gray-500">Name:</span>
+                <span className="text-sm font-medium dark:text-white text-gray-900">
+                  {client.name || 'N/A'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Mail className="w-4 h-4 dark:text-gray-500 text-gray-400" />
+                <span className="text-sm dark:text-gray-400 text-gray-500">Email:</span>
+                <span className="text-sm font-medium dark:text-white text-gray-900">
+                  {client.email || 'N/A'}
+                </span>
+              </div>
+              {client.phone && (
+                <div className="flex items-center gap-2">
+                  <Phone className="w-4 h-4 dark:text-gray-500 text-gray-400" />
+                  <span className="text-sm dark:text-gray-400 text-gray-500">Phone:</span>
+                  <span className="text-sm font-medium dark:text-white text-gray-900">
+                    {client.phone}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Error message */}
+          {error && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-500">{error}</p>
+            </div>
+          )}
+
           {/* Text input */}
           <div>
             <label className="block text-sm font-medium mb-2 dark:text-gray-300 text-gray-700">
@@ -110,7 +160,7 @@ export function NewProjectModal({ isOpen, onClose, onCreate }) {
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="px-4 py-2 text-sm font-medium rounded-lg
                 dark:text-gray-300 dark:hover:bg-gray-700
                 text-gray-700 hover:bg-gray-100"

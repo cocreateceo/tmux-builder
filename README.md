@@ -331,4 +331,8 @@ tmux capture-pane -t tmux_builder_<guid> -p
 
 ## License
 
+             
+  Admin Login                                                                                                                                                                                  
+                                                                                                                                                                                               
+  Password: tmux@admin2026 
 MIT

@@ -214,8 +214,16 @@ export function useProgressSocket(guid, handlers = {}) {
         handlersRef.current.onDisconnect?.();
         wsRef.current = null;
 
-        // Auto-reconnect with exponential backoff
-        if (event.code !== 1000 && reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
+        // Don't reconnect for certain close codes
+        // 1000: Normal close, 1008: Policy violation, 1011: Server error (e.g., invalid session)
+        const noReconnectCodes = [1000, 1008, 1011];
+        if (noReconnectCodes.includes(event.code)) {
+          console.log(`[MCP-WS] Not reconnecting (code ${event.code} indicates permanent error)`);
+          return;
+        }
+
+        // Auto-reconnect with exponential backoff for transient errors
+        if (reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000);
           console.log(`[MCP-WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current + 1}/${MAX_RECONNECT_ATTEMPTS})`);
           if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);

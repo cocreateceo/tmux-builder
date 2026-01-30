@@ -10,18 +10,13 @@ import { ChatPanel } from './components/ChatPanel';
 import { ActivityPanel } from './components/ActivityPanel';
 import { NewProjectModal } from './components/NewProjectModal';
 
-function getUrlGuid() {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('guid');
-}
-
 function ClientAppContent() {
-  const initialGuid = getUrlGuid();
   const [activityCollapsed, setActivityCollapsed] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // useClientSession handles URL params internally - no need to pass initialGuid
   const {
     guid,
     client,
@@ -34,7 +29,7 @@ function ClientAppContent() {
     updateProject,
     duplicateProject,
     refresh: refreshProjects,
-  } = useClientSession(initialGuid);
+  } = useClientSession();
 
   // WebSocket handlers for real-time updates
   const wsHandlers = useMemo(() => ({
@@ -85,21 +80,25 @@ function ClientAppContent() {
     clearActivityLog
   } = useProgressSocket(guid, wsHandlers);
 
-  // Load chat history when project changes
+  // Load chat history when guid changes
   useEffect(() => {
     if (!guid) {
       setMessages([]);
       return;
     }
 
+    // Load history for this guid
     clientApi.getChatHistory(guid)
       .then(response => {
-        if (response?.messages) {
+        if (response?.messages && Array.isArray(response.messages)) {
           setMessages(response.messages);
+        } else {
+          setMessages([]);
         }
       })
       .catch(err => {
-        console.error('Failed to load history:', err);
+        console.error('Failed to load chat history:', err);
+        setMessages([]);
       });
   }, [guid]);
 
@@ -125,6 +124,8 @@ function ClientAppContent() {
       }
     } catch (err) {
       toast.error(err.response?.data?.detail || err.message);
+    } finally {
+      // Always set loading to false when request completes
       setLoading(false);
     }
   }, [guid]);
@@ -136,14 +137,9 @@ function ClientAppContent() {
   }, [selectProject, clearActivityLog]);
 
   const handleCreateProject = useCallback(async (initialRequest, name) => {
-    try {
-      await createProject(initialRequest, name);
-      toast.success('Project created!');
-      clearActivityLog();
-    } catch (err) {
-      toast.error(err.message || 'Failed to create project');
-      throw err;
-    }
+    await createProject(initialRequest, name);
+    toast.success('Project created!');
+    clearActivityLog();
   }, [createProject, clearActivityLog]);
 
   const handleRenameProject = useCallback(async (projectGuid) => {
@@ -276,6 +272,7 @@ function ClientAppContent() {
         isOpen={showNewProjectModal}
         onClose={() => setShowNewProjectModal(false)}
         onCreate={handleCreateProject}
+        client={client}
       />
     </div>
   );

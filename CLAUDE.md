@@ -16,15 +16,26 @@ Tmux Builder: Web UI for interacting with Claude CLI through isolated tmux sessi
 
 ## Key Files
 
-- `backend/main.py` - FastAPI app, session management, admin API endpoints
+### Backend
+- `backend/main.py` - FastAPI app, session management, admin + client API endpoints
 - `backend/ws_server.py` - Progress WebSocket server, reads summary.md for completions
 - `backend/session_controller.py` - Message orchestration, timestamped prompt files
 - `backend/session_initializer.py` - Creates tmux session, generates notify.sh
 - `backend/system_prompt_generator.py` - Generates system_prompt.txt
-- `frontend/src/components/SplitChatView.jsx` - Main UI with collapsible sidebar
+
+### Frontend - Admin UI
+- `frontend/src/components/SplitChatView.jsx` - Admin UI with collapsible sidebar
 - `frontend/src/components/SessionSidebar.jsx` - Collapsible session list
 - `frontend/src/components/MessageList.jsx` - Chat with markdown rendering
 - `frontend/src/hooks/useProgressSocket.js` - Channel 2 WebSocket hook
+
+### Frontend - Client UI
+- `frontend/src/App.jsx` - Route handler (/client_input, /client, /)
+- `frontend/src/client/ClientApp.jsx` - Client dashboard main component
+- `frontend/src/client/ClientOnboarding.jsx` - Onboarding form (/client_input)
+- `frontend/src/client/hooks/useClientSession.js` - Client session state management
+- `frontend/src/client/services/clientApi.js` - Client API service
+- `frontend/src/client/components/` - ChatPanel, ActivityPanel, ProjectSidebar, etc.
 
 ## Recent Changes (Jan 2026)
 
@@ -50,6 +61,23 @@ GET  /api/admin/sessions?filter=all|active|completed
 POST /api/admin/sessions  (email, phone, initial_request)
 GET  /api/admin/sessions/{guid}
 ```
+
+### Client Dashboard UI (Jan 2026)
+New client-facing dashboard at `/client` route with:
+- **Routes:**
+  - `/client_input` or `/onboard` - Client onboarding form (name, email, phone, request)
+  - `/client?guid=xxx` - Client dashboard with project
+  - `/client?email=xxx` - Client dashboard by email
+- **Components:** ProjectSidebar, ChatPanel, ActivityPanel, NewProjectModal
+- **Features:** Multi-theme (dark/light), project CRUD, chat history, real-time activity
+- **API Endpoints:**
+  ```
+  GET  /api/client/projects?email=xxx&guid=xxx  - Get client's projects
+  POST /api/client/projects                      - Create project (email, initial_request)
+  PATCH /api/client/projects/{guid}              - Update project (name, archived)
+  POST /api/client/projects/{guid}/duplicate     - Duplicate project
+  GET  /api/history?guid=xxx                     - Get chat history (recovers from summary.md)
+  ```
 
 ## Common Patterns
 
@@ -101,6 +129,10 @@ message['data'] = summary_content
 - **Summary format**: Claude writes to summary.md, backend reads it
 - **tmux session name**: `tmux_builder_{guid}` format
 - **Sessions path**: Project directory, NOT home directory
+- **React hook deps**: Never include mutable state (like `client`) in useCallback deps if you also `setClient` inside - causes infinite loops
+- **WebSocket no-reconnect codes**: [1000, 1008, 1011] - don't reconnect on clean close or server errors for invalid sessions
+- **Port conflicts**: Kill old uvicorn processes before restart - `lsof -i :8080` and `lsof -i :8082` to check
+- **Chat history recovery**: `/api/history` recovers AI responses from `summary.md` if missing from `chat_history.jsonl`
 
 ## Testing
 
@@ -115,10 +147,10 @@ cd frontend && npm run dev
 ./notify.sh status "Testing from CLI"
 
 # Test admin API
-curl http://localhost:8000/api/admin/sessions?filter=all
+curl http://localhost:8080/api/admin/sessions?filter=all
 
 # Test chat with existing session
-curl -X POST http://localhost:8000/api/chat \
+curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "hello", "guid": "<guid>"}'
 

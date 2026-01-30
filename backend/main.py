@@ -7,7 +7,7 @@ import logging
 import os
 import shutil
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
@@ -914,16 +914,46 @@ async def get_history(guid: str = None):
     try:
         session_path = ACTIVE_SESSIONS_DIR / target_guid
         history_file = session_path / "chat_history.jsonl"
-
-        if not history_file.exists():
-            return HistoryResponse(messages=[])
+        summary_file = session_path / "summary.md"
 
         messages = []
-        with open(history_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    messages.append(json.loads(line))
+
+        if history_file.exists():
+            with open(history_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        messages.append(json.loads(line))
+
+        # Check if we need to recover assistant response from summary.md
+        # If last message is from user and summary.md exists, append it
+        if messages and summary_file.exists():
+            last_msg = messages[-1]
+            has_assistant_after_last_user = False
+
+            # Check if there's already an assistant message after the last user message
+            for i in range(len(messages) - 1, -1, -1):
+                if messages[i].get('role') == 'user':
+                    break
+                if messages[i].get('role') == 'assistant':
+                    has_assistant_after_last_user = True
+                    break
+
+            if last_msg.get('role') == 'user' and not has_assistant_after_last_user:
+                # Read summary and append as assistant message
+                summary_content = summary_file.read_text().strip()
+                if summary_content:
+                    assistant_msg = {
+                        "role": "assistant",
+                        "content": summary_content,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }
+                    messages.append(assistant_msg)
+
+                    # Persist to chat_history.jsonl for future loads
+                    with open(history_file, 'a') as f:
+                        f.write(json.dumps(assistant_msg) + '\n')
+                    logger.info(f"Recovered assistant response from summary.md for {target_guid}")
 
         return HistoryResponse(messages=messages)
     except Exception as e:

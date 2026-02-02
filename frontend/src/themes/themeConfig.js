@@ -178,5 +178,5 @@ export function getThemeList() {
  * Check if a theme ID is valid
  */
 export function isValidTheme(themeId) {
-  return themeId && THEMES.hasOwnProperty(themeId);
+  return themeId && Object.hasOwn(THEMES, themeId);
 }

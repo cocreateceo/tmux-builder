@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import MessageList from './MessageList';
 import InputArea from './InputArea';
 import ThemePicker from './ThemePicker';
+import McpToolsLog from './McpToolsLog';
 import { initTheme, subscribeToThemeChanges, getStoredTheme } from '../themes/ThemeManager';
 import useProgressSocket from '../hooks/useProgressSocket';
 import apiService from '../services/api.js';
@@ -103,7 +104,9 @@ export default function EmbedView({ initialGuid, initialTheme }) {
   // Connect to WebSocket for real-time progress
   const {
     connected: mcpConnected,
-    statusMessage
+    statusMessage,
+    activityLog,
+    progress
   } = useProgressSocket(guid, mcpHandlers);
 
   // Load chat history when guid changes
@@ -221,18 +224,26 @@ export default function EmbedView({ initialGuid, initialTheme }) {
           </div>
         )}
 
-        {/* Chat card - glass morphism style */}
-        <main className="flex-1 flex flex-col embed-card embed-card-glow overflow-hidden">
-          {/* Messages area */}
-          <div className="flex-1 overflow-y-auto p-4 md:p-6">
-            <MessageList messages={messages} loading={loading} />
-          </div>
+        {/* Split view - Chat and Activity Log */}
+        <div className="flex-1 flex gap-4 overflow-hidden">
+          {/* Left: Chat card - glass morphism style */}
+          <main className="w-1/2 flex flex-col embed-card embed-card-glow overflow-hidden">
+            {/* Messages area */}
+            <div className="flex-1 overflow-y-auto p-4 md:p-6">
+              <MessageList messages={messages} loading={loading} />
+            </div>
 
-          {/* Input area */}
-          <div className="border-t border-[var(--border-color)] p-4">
-            <InputArea onSendMessage={handleSendMessage} disabled={loading} />
-          </div>
-        </main>
+            {/* Input area */}
+            <div className="border-t border-[var(--border-color)] p-4">
+              <InputArea onSendMessage={handleSendMessage} disabled={loading} />
+            </div>
+          </main>
+
+          {/* Right: Activity Log */}
+          <aside className="w-1/2 embed-card overflow-hidden">
+            <McpToolsLog logs={activityLog} connected={mcpConnected} progress={progress} />
+          </aside>
+        </div>
 
         {/* Footer */}
         <footer className="mt-4 text-center">

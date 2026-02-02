@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { getThemeList, THEMES } from '../themes/themeConfig';
+import { getThemeList, THEMES, isValidTheme } from '../themes/themeConfig';
 import { setTheme } from '../themes/ThemeManager';
 
 /**
@@ -7,7 +7,9 @@ import { setTheme } from '../themes/ThemeManager';
  */
 export default function ThemePicker({ currentTheme, onThemeChange }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState(-1);
   const dropdownRef = useRef(null);
+  const optionRefs = useRef([]);
   const themes = getThemeList();
 
   // Close dropdown when clicking outside
@@ -15,29 +17,87 @@ export default function ThemePicker({ currentTheme, onThemeChange }) {
     function handleClickOutside(event) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setIsOpen(false);
+        setFocusedIndex(-1);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Close on escape key
+  // Handle keyboard navigation
   useEffect(() => {
-    function handleEscape(event) {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
+    function handleKeyDown(event) {
+      if (!isOpen) return;
+
+      switch (event.key) {
+        case 'Escape':
+          setIsOpen(false);
+          setFocusedIndex(-1);
+          break;
+        case 'ArrowDown':
+          event.preventDefault();
+          setFocusedIndex((prev) => {
+            const next = prev < themes.length - 1 ? prev + 1 : 0;
+            optionRefs.current[next]?.focus();
+            return next;
+          });
+          break;
+        case 'ArrowUp':
+          event.preventDefault();
+          setFocusedIndex((prev) => {
+            const next = prev > 0 ? prev - 1 : themes.length - 1;
+            optionRefs.current[next]?.focus();
+            return next;
+          });
+          break;
+        case 'Enter':
+        case ' ':
+          if (focusedIndex >= 0 && focusedIndex < themes.length) {
+            event.preventDefault();
+            handleThemeSelect(themes[focusedIndex].id);
+          }
+          break;
+        case 'Tab':
+          setIsOpen(false);
+          setFocusedIndex(-1);
+          break;
+        default:
+          break;
       }
     }
+
     if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-      return () => document.removeEventListener('keydown', handleEscape);
+      document.addEventListener('keydown', handleKeyDown);
+      return () => document.removeEventListener('keydown', handleKeyDown);
     }
-  }, [isOpen]);
+  }, [isOpen, focusedIndex, themes]);
+
+  // Focus first option when dropdown opens
+  useEffect(() => {
+    if (isOpen && themes.length > 0) {
+      const currentIndex = themes.findIndex((t) => t.id === currentTheme);
+      const initialIndex = currentIndex >= 0 ? currentIndex : 0;
+      setFocusedIndex(initialIndex);
+      setTimeout(() => optionRefs.current[initialIndex]?.focus(), 0);
+    }
+  }, [isOpen, currentTheme, themes]);
 
   const handleThemeSelect = (themeId) => {
+    if (!isValidTheme(themeId)) {
+      console.warn(`Invalid theme selection: ${themeId}`);
+      return;
+    }
     setTheme(themeId);
     onThemeChange(themeId);
     setIsOpen(false);
+    setFocusedIndex(-1);
+  };
+
+  const handleOptionKeyDown = (event, themeId) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleThemeSelect(themeId);
+    }
   };
 
   const currentThemeData = THEMES[currentTheme] || THEMES.ember;
@@ -74,13 +134,16 @@ export default function ThemePicker({ currentTheme, onThemeChange }) {
 
       {isOpen && (
         <div className="theme-picker-dropdown" role="listbox">
-          {themes.map((theme) => (
+          {themes.map((theme, index) => (
             <div
               key={theme.id}
+              ref={(el) => (optionRefs.current[index] = el)}
               className={`theme-picker-option ${theme.id === currentTheme ? 'active' : ''}`}
               onClick={() => handleThemeSelect(theme.id)}
+              onKeyDown={(e) => handleOptionKeyDown(e, theme.id)}
               role="option"
               aria-selected={theme.id === currentTheme}
+              tabIndex={0}
             >
               <div
                 className="theme-color-preview"

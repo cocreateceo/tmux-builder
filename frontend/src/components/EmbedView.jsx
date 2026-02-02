@@ -171,86 +171,61 @@ export default function EmbedView({ initialGuid, initialTheme }) {
   }, []);
 
   return (
-    <div className="embed-container">
+    <div className="embed-container h-screen flex flex-col">
       {/* Animated gradient background */}
       <div className="embed-background" />
 
-      {/* Main content */}
-      <div className="min-h-screen flex flex-col p-4 md:p-6">
-        {/* Header */}
-        <header className="flex justify-between items-center mb-4">
-          <div className="flex items-center gap-3">
-            <h1 className="embed-text-primary text-xl font-bold">Tmux Builder</h1>
-            <div className="flex items-center gap-2 text-sm">
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  mcpConnected ? 'bg-green-500' : 'bg-red-500'
-                }`}
-              />
-              <span className="embed-text-muted text-xs">
-                {mcpConnected ? 'Connected' : 'Disconnected'}
-              </span>
-            </div>
-            {guid && (
-              <span className="embed-text-muted text-xs font-mono">
-                {guid.substring(0, 8)}...
-              </span>
-            )}
+      {/* Header - matches original SplitChatView layout */}
+      <div className="p-3 flex justify-between items-center" style={{ background: 'var(--bg-secondary)' }}>
+        <div className="flex items-center gap-4">
+          <h1 className="font-bold embed-text-primary">Tmux Builder</h1>
+          <div className="flex items-center gap-2 text-sm">
+            <span className={`w-2 h-2 rounded-full ${mcpConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+            <span className="embed-text-muted">MCP</span>
           </div>
+          {guid && (
+            <span className="text-xs embed-text-muted font-mono">
+              {guid.substring(0, 12)}...
+            </span>
+          )}
+          {statusMessage && (
+            <span className="text-sm embed-text-secondary truncate max-w-xs">
+              {statusMessage}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-4">
+          <ThemePicker
+            currentTheme={currentTheme}
+            onThemeChange={handleThemeChange}
+          />
+        </div>
+      </div>
 
-          <div className="flex items-center gap-3">
-            {statusMessage && (
-              <span className="embed-text-secondary text-sm truncate max-w-[200px]">
-                {statusMessage}
-              </span>
-            )}
-            <ThemePicker
-              currentTheme={currentTheme}
-              onThemeChange={handleThemeChange}
-            />
+      {/* Error banner */}
+      {error && (
+        <div className="p-2 text-center text-sm" style={{ background: 'rgba(239, 68, 68, 0.2)', color: 'var(--text-primary)' }}>
+          {error}
+          <button onClick={() => setError(null)} className="ml-2 underline">Dismiss</button>
+        </div>
+      )}
+
+      {/* Split panels - exact same structure as SplitChatView */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left: Chat */}
+        <div className="w-1/2 flex flex-col" style={{ borderRight: '1px solid var(--border-color)' }}>
+          <div className="flex-1 overflow-y-auto p-4" style={{ background: 'var(--bg-card)' }}>
+            <MessageList messages={messages} loading={loading} />
           </div>
-        </header>
-
-        {/* Error banner */}
-        {error && (
-          <div className="embed-card bg-red-500/20 border-red-500/50 text-red-200 p-3 mb-4 flex justify-between items-center">
-            <span>{error}</span>
-            <button
-              onClick={() => setError(null)}
-              className="embed-text-muted hover:text-white underline text-sm"
-            >
-              Dismiss
-            </button>
+          <div className="p-4" style={{ borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+            <InputArea onSendMessage={handleSendMessage} disabled={loading} />
           </div>
-        )}
-
-        {/* Split view - Chat and Activity Log */}
-        <div className="flex-1 flex gap-4 overflow-hidden">
-          {/* Left: Chat card - glass morphism style */}
-          <main className="w-1/2 flex flex-col embed-card embed-card-glow overflow-hidden">
-            {/* Messages area */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-6">
-              <MessageList messages={messages} loading={loading} />
-            </div>
-
-            {/* Input area */}
-            <div className="border-t border-[var(--border-color)] p-4">
-              <InputArea onSendMessage={handleSendMessage} disabled={loading} />
-            </div>
-          </main>
-
-          {/* Right: Activity Log */}
-          <aside className="w-1/2 embed-card overflow-hidden">
-            <McpToolsLog logs={activityLog} connected={mcpConnected} progress={progress} />
-          </aside>
         </div>
 
-        {/* Footer */}
-        <footer className="mt-4 text-center">
-          <p className="embed-text-muted text-xs">
-            Powered by Claude CLI
-          </p>
-        </footer>
+        {/* Right: Activity Log */}
+        <div className="w-1/2">
+          <McpToolsLog logs={activityLog} connected={mcpConnected} progress={progress} />
+        </div>
       </div>
     </div>
   );

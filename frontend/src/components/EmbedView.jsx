@@ -159,8 +159,8 @@ export default function EmbedView({ initialGuid }) {
       {/* Animated gradient background */}
       <div className="embed-background" />
 
-      {/* Header - matches original SplitChatView layout */}
-      <div className="p-3 flex justify-between items-center" style={{ background: 'var(--bg-secondary)' }}>
+      {/* Header - glass effect matching reference project */}
+      <div className="p-3 flex justify-between items-center embed-card" style={{ borderRadius: 0, borderLeft: 'none', borderRight: 'none', borderTop: 'none' }}>
         <div className="flex items-center gap-4">
           <h1 className="font-bold embed-text-primary">Tmux Builder</h1>
           <div className="flex items-center gap-2 text-sm">

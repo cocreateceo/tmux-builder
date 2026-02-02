@@ -62,17 +62,17 @@ export function ProjectCard({
   return (
     <div
       onClick={onClick}
-      className={`p-3 rounded-lg cursor-pointer transition-all border
-        ${isActive
-          ? 'dark:bg-indigo-500/20 dark:border-indigo-500/50 bg-indigo-50 border-indigo-200'
-          : 'dark:bg-[#1a1a24] dark:border-gray-800 dark:hover:bg-[#1e1e2a] bg-white border-gray-200 hover:bg-gray-50'
-        }`}
+      className="p-3 rounded-lg cursor-pointer transition-all border hover:opacity-90"
+      style={{
+        background: isActive ? 'rgba(252, 42, 13, 0.15)' : 'var(--bg-secondary)',
+        borderColor: isActive ? 'var(--primary)' : 'var(--border-color)'
+      }}
     >
       {/* Header row */}
       <div className="flex items-start justify-between gap-2 mb-1.5">
         <div className="flex items-center gap-2 min-w-0">
           <span className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusColor(project.status)}`} />
-          <h3 className="font-medium text-sm truncate dark:text-white text-gray-900">
+          <h3 className="font-medium text-sm truncate" style={{ color: 'var(--text-primary)' }}>
             {project.name}
           </h3>
         </div>
@@ -84,9 +84,9 @@ export function ProjectCard({
               e.stopPropagation();
               setShowMenu(!showMenu);
             }}
-            className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10"
+            className="p-1 rounded hover:opacity-80"
           >
-            <MoreHorizontal className="w-4 h-4 dark:text-gray-400 text-gray-500" />
+            <MoreHorizontal className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
           </button>
 
           {showMenu && (
@@ -98,48 +98,49 @@ export function ProjectCard({
                   setShowMenu(false);
                 }}
               />
-              <div className="absolute right-0 top-full mt-1 z-20 w-40 py-1 rounded-lg shadow-lg border
-                dark:bg-[#1a1a24] dark:border-gray-700 bg-white border-gray-200">
+              <div
+                className="absolute right-0 top-full mt-1 z-20 w-40 py-1 rounded-lg shadow-lg border"
+                style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}
+              >
                 <button
                   onClick={(e) => handleMenuAction(onRename, e)}
-                  className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2
-                    dark:hover:bg-gray-800 hover:bg-gray-100 dark:text-gray-300 text-gray-700"
+                  className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 hover:opacity-80"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   <Pencil className="w-3.5 h-3.5" /> Rename
                 </button>
                 <button
                   onClick={(e) => handleMenuAction(onDuplicate, e)}
-                  className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2
-                    dark:hover:bg-gray-800 hover:bg-gray-100 dark:text-gray-300 text-gray-700"
+                  className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 hover:opacity-80"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   <Copy className="w-3.5 h-3.5" /> Duplicate
                 </button>
                 <button
                   onClick={(e) => handleMenuAction(onShare, e)}
-                  className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2
-                    dark:hover:bg-gray-800 hover:bg-gray-100 dark:text-gray-300 text-gray-700"
+                  className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 hover:opacity-80"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   <Share2 className="w-3.5 h-3.5" /> Share
                 </button>
                 <button
                   onClick={(e) => handleMenuAction(onDownload, e)}
-                  className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2
-                    dark:hover:bg-gray-800 hover:bg-gray-100 dark:text-gray-300 text-gray-700"
+                  className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 hover:opacity-80"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   <Download className="w-3.5 h-3.5" /> Download
                 </button>
-                <hr className="my-1 dark:border-gray-700 border-gray-200" />
+                <hr className="my-1" style={{ borderColor: 'var(--border-color)' }} />
                 <button
                   onClick={(e) => handleMenuAction(onArchive, e)}
-                  className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2
-                    dark:hover:bg-gray-800 hover:bg-gray-100 dark:text-gray-300 text-gray-700"
+                  className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 hover:opacity-80"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   <Archive className="w-3.5 h-3.5" /> Archive
                 </button>
                 <button
                   onClick={(e) => handleMenuAction(onDelete, e)}
-                  className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 text-red-500
-                    dark:hover:bg-gray-800 hover:bg-gray-100"
+                  className="w-full px-3 py-1.5 text-left text-sm flex items-center gap-2 text-red-500 hover:opacity-80"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Delete
                 </button>
@@ -150,13 +151,13 @@ export function ProjectCard({
       </div>
 
       {/* Description snippet */}
-      <p className="text-xs dark:text-gray-400 text-gray-500 truncate mb-2">
+      <p className="text-xs truncate mb-2" style={{ color: 'var(--text-muted)' }}>
         {project.initial_request || 'No description'}
       </p>
 
       {/* Footer row */}
       <div className="flex items-center justify-between text-xs">
-        <div className="flex items-center gap-3 dark:text-gray-500 text-gray-400">
+        <div className="flex items-center gap-3" style={{ color: 'var(--text-muted)' }}>
           <span className="flex items-center gap-1">
             <MessageSquare className="w-3 h-3" />
             {project.message_count || 0}

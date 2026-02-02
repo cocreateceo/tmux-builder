@@ -1,6 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-const MCP_WS_URL = 'ws://localhost:8082';
+// Auto-detect WebSocket URL based on environment
+const getWsUrl = () => {
+  if (typeof window === 'undefined') return 'ws://localhost:8082';
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (isLocalhost) return 'ws://localhost:8082';
+  // Production: use wss:// with same host (CloudFront proxies /ws/ to backend)
+  return `wss://${window.location.host}`;
+};
+
+const MCP_WS_URL = getWsUrl();
 const MAX_RECONNECT_ATTEMPTS = 5;
 const MAX_LOG_ENTRIES = 500;
 

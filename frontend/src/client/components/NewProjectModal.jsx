@@ -55,20 +55,23 @@ export function NewProjectModal({ isOpen, onClose, onCreate, client }) {
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg rounded-xl shadow-2xl border
-        dark:bg-[#1a1a24] dark:border-gray-700 bg-white border-gray-200">
-
+      <div
+        className="relative w-full max-w-lg rounded-xl shadow-2xl border"
+        style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b
-          dark:border-gray-700 border-gray-200">
-          <h2 className="text-lg font-semibold dark:text-white text-gray-900">
+        <div
+          className="flex items-center justify-between p-4 border-b"
+          style={{ borderColor: 'var(--border-color)' }}
+        >
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
             Start New Project
           </h2>
           <button
             onClick={handleClose}
-            className="p-1 rounded-lg dark:hover:bg-gray-700 hover:bg-gray-100"
+            className="p-1 rounded-lg hover:opacity-80"
           >
-            <X className="w-5 h-5 dark:text-gray-400 text-gray-500" />
+            <X className="w-5 h-5" style={{ color: 'var(--text-muted)' }} />
           </button>
         </div>
 
@@ -76,27 +79,29 @@ export function NewProjectModal({ isOpen, onClose, onCreate, client }) {
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {/* Client info (read-only) */}
           {client && (
-            <div className="grid grid-cols-1 gap-3 p-3 rounded-lg
-              dark:bg-[#12121a] bg-gray-50 border dark:border-gray-700 border-gray-200">
+            <div
+              className="grid grid-cols-1 gap-3 p-3 rounded-lg border"
+              style={{ background: 'var(--bg-primary)', borderColor: 'var(--border-color)' }}
+            >
               <div className="flex items-center gap-2">
-                <User className="w-4 h-4 dark:text-gray-500 text-gray-400" />
-                <span className="text-sm dark:text-gray-400 text-gray-500">Name:</span>
-                <span className="text-sm font-medium dark:text-white text-gray-900">
+                <User className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+                <span className="text-sm" style={{ color: 'var(--text-muted)' }}>Name:</span>
+                <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                   {client.name || 'N/A'}
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 dark:text-gray-500 text-gray-400" />
-                <span className="text-sm dark:text-gray-400 text-gray-500">Email:</span>
-                <span className="text-sm font-medium dark:text-white text-gray-900">
+                <Mail className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+                <span className="text-sm" style={{ color: 'var(--text-muted)' }}>Email:</span>
+                <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                   {client.email || 'N/A'}
                 </span>
               </div>
               {client.phone && (
                 <div className="flex items-center gap-2">
-                  <Phone className="w-4 h-4 dark:text-gray-500 text-gray-400" />
-                  <span className="text-sm dark:text-gray-400 text-gray-500">Phone:</span>
-                  <span className="text-sm font-medium dark:text-white text-gray-900">
+                  <Phone className="w-4 h-4" style={{ color: 'var(--text-muted)' }} />
+                  <span className="text-sm" style={{ color: 'var(--text-muted)' }}>Phone:</span>
+                  <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                     {client.phone}
                   </span>
                 </div>
@@ -114,7 +119,7 @@ export function NewProjectModal({ isOpen, onClose, onCreate, client }) {
 
           {/* Text input */}
           <div>
-            <label className="block text-sm font-medium mb-2 dark:text-gray-300 text-gray-700">
+            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
               What do you want to build?
             </label>
             <textarea
@@ -122,17 +127,19 @@ export function NewProjectModal({ isOpen, onClose, onCreate, client }) {
               onChange={(e) => setRequest(e.target.value)}
               placeholder="Describe your project in detail..."
               rows={4}
-              className="w-full px-3 py-2 text-sm rounded-lg border resize-none
-                dark:bg-[#12121a] dark:border-gray-700 dark:text-white dark:placeholder-gray-500
-                bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-400
-                focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+              className="w-full px-3 py-2 text-sm rounded-lg border resize-none focus:outline-none"
+              style={{
+                background: 'var(--bg-primary)',
+                borderColor: 'var(--border-color)',
+                color: 'var(--text-primary)'
+              }}
               autoFocus
             />
           </div>
 
           {/* Quick starts */}
           <div>
-            <label className="block text-sm font-medium mb-2 dark:text-gray-300 text-gray-700">
+            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
               Quick starts
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -141,13 +148,12 @@ export function NewProjectModal({ isOpen, onClose, onCreate, client }) {
                   key={qs.label}
                   type="button"
                   onClick={() => handleQuickStart(qs.prompt)}
-                  className="p-3 text-left rounded-lg border transition-colors
-                    dark:border-gray-700 dark:hover:border-indigo-500/50 dark:hover:bg-indigo-500/10
-                    border-gray-200 hover:border-indigo-300 hover:bg-indigo-50"
+                  className="p-3 text-left rounded-lg border transition-colors hover:opacity-80"
+                  style={{ borderColor: 'var(--border-color)' }}
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-lg">{qs.icon}</span>
-                    <span className="text-sm font-medium dark:text-white text-gray-900">
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                       {qs.label}
                     </span>
                   </div>
@@ -161,18 +167,16 @@ export function NewProjectModal({ isOpen, onClose, onCreate, client }) {
             <button
               type="button"
               onClick={handleClose}
-              className="px-4 py-2 text-sm font-medium rounded-lg
-                dark:text-gray-300 dark:hover:bg-gray-700
-                text-gray-700 hover:bg-gray-100"
+              className="px-4 py-2 text-sm font-medium rounded-lg hover:opacity-80"
+              style={{ color: 'var(--text-secondary)' }}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!request.trim() || loading}
-              className="px-4 py-2 text-sm font-medium rounded-lg flex items-center gap-2
-                bg-indigo-500 hover:bg-indigo-600 text-white
-                disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 text-sm font-medium rounded-lg flex items-center gap-2 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: 'var(--primary)' }}
             >
               <Sparkles className="w-4 h-4" />
               {loading ? 'Creating...' : 'Create Project'}

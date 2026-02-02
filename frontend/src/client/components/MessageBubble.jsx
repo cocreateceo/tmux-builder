@@ -21,25 +21,23 @@ export function MessageBubble({ message }) {
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
       {/* Avatar */}
-      <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center
-        ${isUser
-          ? 'bg-indigo-500'
-          : 'dark:bg-gray-700 bg-gray-200'
-        }`}
+      <div
+        className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
+        style={{ background: isUser ? 'var(--primary)' : 'var(--bg-secondary)' }}
       >
         {isUser ? (
           <User className="w-4 h-4 text-white" />
         ) : (
-          <Bot className="w-4 h-4 dark:text-gray-300 text-gray-600" />
+          <Bot className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
         )}
       </div>
 
       {/* Message content */}
       <div className={`flex-1 max-w-[80%] ${isUser ? 'text-right' : ''}`}>
         {/* Header */}
-        <div className={`flex items-center gap-2 mb-1 text-xs
-          dark:text-gray-500 text-gray-400
-          ${isUser ? 'justify-end' : ''}`}
+        <div
+          className={`flex items-center gap-2 mb-1 text-xs ${isUser ? 'justify-end' : ''}`}
+          style={{ color: 'var(--text-muted)' }}
         >
           <span className="font-medium">
             {isUser ? 'You' : 'Claude'}
@@ -48,13 +46,21 @@ export function MessageBubble({ message }) {
         </div>
 
         {/* Content bubble */}
-        <div className={`rounded-2xl px-4 py-3 inline-block text-left
-          ${isUser
-            ? 'bg-indigo-500 text-white rounded-tr-sm'
-            : isDeployment
-              ? 'dark:bg-green-500/20 dark:border-green-500/30 bg-green-50 border border-green-200 rounded-tl-sm'
-              : 'dark:bg-[#1a1a24] dark:text-gray-200 bg-gray-100 text-gray-800 rounded-tl-sm'
-          }`}
+        <div
+          className={`rounded-2xl px-4 py-3 inline-block text-left ${isUser ? 'rounded-tr-sm' : 'rounded-tl-sm'}`}
+          style={{
+            background: isUser
+              ? 'transparent'
+              : isDeployment
+                ? 'rgba(34, 197, 94, 0.15)'
+                : 'var(--bg-secondary)',
+            color: 'var(--text-primary)',
+            border: isUser
+              ? '1px solid var(--primary)'
+              : isDeployment
+                ? '1px solid rgba(34, 197, 94, 0.3)'
+                : 'none'
+          }}
         >
           {isDeployment && deployUrl ? (
             <div className="space-y-3">
@@ -64,9 +70,11 @@ export function MessageBubble({ message }) {
               </div>
 
               {/* Preview placeholder */}
-              <div className="w-full h-32 rounded-lg bg-gray-800/50 flex items-center justify-center
-                border dark:border-gray-700 border-gray-300">
-                <span className="text-sm dark:text-gray-400 text-gray-500">Preview</span>
+              <div
+                className="w-full h-32 rounded-lg flex items-center justify-center border"
+                style={{ background: 'var(--bg-primary)', borderColor: 'var(--border-color)' }}
+              >
+                <span className="text-sm" style={{ color: 'var(--text-muted)' }}>Preview</span>
               </div>
 
               {/* Link */}
@@ -81,12 +89,7 @@ export function MessageBubble({ message }) {
               </a>
             </div>
           ) : (
-            <div className={`prose prose-sm max-w-none
-              ${isUser
-                ? 'prose-invert'
-                : 'dark:prose-invert'
-              }`}
-            >
+            <div className="prose prose-sm max-w-none dark:prose-invert">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{

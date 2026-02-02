@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import { ThemeProvider } from './context/ThemeContext';
 import { useClientSession } from './hooks/useClientSession';
@@ -9,12 +9,24 @@ import { ProjectSidebar } from './components/ProjectSidebar';
 import { ChatPanel } from './components/ChatPanel';
 import { ActivityPanel } from './components/ActivityPanel';
 import { NewProjectModal } from './components/NewProjectModal';
+import { initTheme } from '../themes/ThemeManager';
+import '../themes/themeStyles.css';
 
 function ClientAppContent() {
   const [activityCollapsed, setActivityCollapsed] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [activityWidth, setActivityWidth] = useState(() => {
+    const saved = localStorage.getItem('activityPanelWidth');
+    return saved ? parseInt(saved, 10) : 400;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+
+  // Initialize ember theme on mount
+  useEffect(() => {
+    initTheme('ember');
+  }, []);
 
   // useClientSession handles URL params internally - no need to pass initialGuid
   const {
@@ -195,14 +207,43 @@ function ClientAppContent() {
     toast('Download feature coming soon!', { icon: '🚧' });
   }, []);
 
+  // Resize handlers for activity panel
+  const handleResizeStart = useCallback((e) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e) => {
+      const newWidth = window.innerWidth - e.clientX;
+      const clampedWidth = Math.max(280, Math.min(600, newWidth));
+      setActivityWidth(clampedWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      localStorage.setItem('activityPanelWidth', activityWidth.toString());
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, activityWidth]);
+
   if (sessionLoading && !projects.length) {
     return (
-      <div className="h-screen flex items-center justify-center
-        dark:bg-[#0a0a0f] bg-gray-50">
-        <div className="text-center">
-          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent
+      <div data-theme="ember" className="h-screen flex items-center justify-center">
+        <div className="embed-background" />
+        <div className="text-center relative z-10">
+          <div className="w-8 h-8 border-2 border-[var(--primary)] border-t-transparent
             rounded-full animate-spin mx-auto mb-4" />
-          <p className="dark:text-gray-400 text-gray-500">Loading your projects...</p>
+          <p className="text-[var(--text-muted)]">Loading your projects...</p>
         </div>
       </div>
     );
@@ -210,13 +251,13 @@ function ClientAppContent() {
 
   if (sessionError && !projects.length) {
     return (
-      <div className="h-screen flex items-center justify-center
-        dark:bg-[#0a0a0f] bg-gray-50">
-        <div className="text-center">
+      <div data-theme="ember" className="h-screen flex items-center justify-center">
+        <div className="embed-background" />
+        <div className="text-center relative z-10">
           <p className="text-red-500 mb-4">{sessionError}</p>
           <button
             onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-indigo-500 text-white rounded-lg"
+            className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg"
           >
             Retry
           </button>
@@ -226,7 +267,10 @@ function ClientAppContent() {
   }
 
   return (
-    <div className="h-screen flex flex-col dark:bg-[#0a0a0f] bg-gray-50">
+    <div data-theme="ember" className={`h-screen flex flex-col ${isResizing ? 'select-none cursor-col-resize' : ''}`}>
+      {/* Background image with ember overlay */}
+      <div className="embed-background" />
+
       <Toaster
         position="top-right"
         toastOptions={{
@@ -258,6 +302,15 @@ function ClientAppContent() {
           onProjectAction={() => {}}
         />
 
+        {/* Resizable divider */}
+        {!activityCollapsed && (
+          <div
+            onMouseDown={handleResizeStart}
+            className={`w-1 cursor-col-resize hover:bg-indigo-500/50 active:bg-indigo-500
+              transition-colors ${isResizing ? 'bg-indigo-500' : 'dark:bg-gray-800 bg-gray-200'}`}
+          />
+        )}
+
         <ActivityPanel
           logs={activityLog}
           progress={progress}
@@ -265,6 +318,7 @@ function ClientAppContent() {
           connected={connected}
           collapsed={activityCollapsed}
           onToggleCollapse={() => setActivityCollapsed(!activityCollapsed)}
+          width={activityWidth}
         />
       </div>
 

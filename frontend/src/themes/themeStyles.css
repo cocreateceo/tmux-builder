@@ -1,0 +1,392 @@
+/**
+ * Theme Styles for Embed Mode
+ * Scoped to [data-theme] to avoid affecting Admin/Client UI
+ */
+
+/* ============================================
+   Base Theme Variables (fallbacks)
+   ============================================ */
+[data-theme] {
+  /* Colors set dynamically by ThemeManager */
+  color-scheme: light dark;
+}
+
+/* ============================================
+   Animated Background Gradients
+   ============================================ */
+[data-theme] .embed-container {
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+[data-theme] .embed-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  background: var(--bg-primary);
+  transition: background 0.3s ease;
+}
+
+/* Ember - Deep amber warmth */
+[data-theme="ember"] .embed-background {
+  background: linear-gradient(
+    135deg,
+    #1A0A00 0%,
+    #2D1408 25%,
+    #3D1A0A 50%,
+    #2D1408 75%,
+    #1A0A00 100%
+  );
+  background-size: 400% 400%;
+  animation: gradient-ember 20s ease infinite;
+}
+
+@keyframes gradient-ember {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Coral - Soft warm light */
+[data-theme="coral"] .embed-background {
+  background: linear-gradient(
+    135deg,
+    #FFF8F0 0%,
+    #FFEEE0 25%,
+    #FFE4D0 50%,
+    #FFEEE0 75%,
+    #FFF8F0 100%
+  );
+  background-size: 400% 400%;
+  animation: gradient-coral 25s ease infinite;
+}
+
+@keyframes gradient-coral {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Sunset - Vibrant pink-orange */
+[data-theme="sunset"] .embed-background {
+  background: linear-gradient(
+    135deg,
+    #2D1B3D 0%,
+    #3D2650 25%,
+    #4D3160 50%,
+    #3D2650 75%,
+    #2D1B3D 100%
+  );
+  background-size: 400% 400%;
+  animation: gradient-sunset 18s ease infinite;
+}
+
+@keyframes gradient-sunset {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Aurora - Soft dreamy pastels */
+[data-theme="aurora"] .embed-background {
+  background: linear-gradient(
+    135deg,
+    #FFF5F8 0%,
+    #FFEEF4 25%,
+    #FFE8F0 50%,
+    #FFEEF4 75%,
+    #FFF5F8 100%
+  );
+  background-size: 400% 400%;
+  animation: gradient-aurora 22s ease infinite;
+}
+
+@keyframes gradient-aurora {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Sandstone - Warm desert beige */
+[data-theme="sandstone"] .embed-background {
+  background: linear-gradient(
+    135deg,
+    #FAF6F1 0%,
+    #F0E8DC 25%,
+    #E8DFD0 50%,
+    #F0E8DC 75%,
+    #FAF6F1 100%
+  );
+  background-size: 400% 400%;
+  animation: gradient-sandstone 24s ease infinite;
+}
+
+@keyframes gradient-sandstone {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Champagne - Soft golden cream */
+[data-theme="champagne"] .embed-background {
+  background: linear-gradient(
+    135deg,
+    #FFFDF8 0%,
+    #FFF8E7 25%,
+    #FFF3D8 50%,
+    #FFF8E7 75%,
+    #FFFDF8 100%
+  );
+  background-size: 400% 400%;
+  animation: gradient-champagne 26s ease infinite;
+}
+
+@keyframes gradient-champagne {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Zoom - Clean professional blue */
+[data-theme="zoom"] .embed-background {
+  background: linear-gradient(
+    135deg,
+    #FFFFFF 0%,
+    #F3F8FF 25%,
+    #E8F0FF 50%,
+    #F3F8FF 75%,
+    #FFFFFF 100%
+  );
+  background-size: 400% 400%;
+  animation: gradient-zoom 28s ease infinite;
+}
+
+@keyframes gradient-zoom {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Legacy - Classic dark mode */
+[data-theme="legacy"] .embed-background {
+  background: linear-gradient(
+    135deg,
+    #020617 0%,
+    #0f172a 25%,
+    #1e293b 50%,
+    #0f172a 75%,
+    #020617 100%
+  );
+  background-size: 400% 400%;
+  animation: gradient-legacy 20s ease infinite;
+}
+
+@keyframes gradient-legacy {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ============================================
+   Glass-morphism Card Styles
+   ============================================ */
+[data-theme] .embed-card {
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme] .embed-card-glow {
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.1),
+    0 0 40px var(--glow-color);
+}
+
+/* ============================================
+   Typography
+   ============================================ */
+[data-theme] .embed-text-primary {
+  color: var(--text-primary);
+}
+
+[data-theme] .embed-text-secondary {
+  color: var(--text-secondary);
+}
+
+[data-theme] .embed-text-muted {
+  color: var(--text-muted);
+}
+
+/* ============================================
+   Interactive Elements
+   ============================================ */
+[data-theme] .embed-button-primary {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+[data-theme] .embed-button-primary:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+[data-theme] .embed-button-secondary {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+[data-theme] .embed-button-secondary:hover {
+  background: var(--bg-secondary);
+}
+
+/* ============================================
+   Input Fields
+   ============================================ */
+[data-theme] .embed-input {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  color: var(--text-primary);
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+
+[data-theme] .embed-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--glow-color);
+}
+
+[data-theme] .embed-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ============================================
+   Chat Message Styles
+   ============================================ */
+[data-theme] .embed-message {
+  padding: 1rem;
+  border-radius: 12px;
+  margin-bottom: 0.75rem;
+}
+
+[data-theme] .embed-message-user {
+  background: var(--primary);
+  color: white;
+  margin-left: 2rem;
+}
+
+[data-theme] .embed-message-assistant {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  margin-right: 2rem;
+}
+
+/* ============================================
+   Scrollbar Styling
+   ============================================ */
+[data-theme] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+[data-theme] ::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+[data-theme] ::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+[data-theme] ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ============================================
+   Theme Picker Styles
+   ============================================ */
+[data-theme] .theme-picker {
+  position: relative;
+}
+
+[data-theme] .theme-picker-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+[data-theme] .theme-picker-button:hover {
+  background: var(--bg-secondary);
+}
+
+[data-theme] .theme-picker-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.5rem;
+  min-width: 200px;
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+  overflow: hidden;
+}
+
+[data-theme] .theme-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+[data-theme] .theme-picker-option:hover {
+  background: var(--bg-secondary);
+}
+
+[data-theme] .theme-picker-option.active {
+  background: var(--bg-secondary);
+}
+
+[data-theme] .theme-color-preview {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border-color);
+}
+
+[data-theme] .theme-picker-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+[data-theme] .theme-picker-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}

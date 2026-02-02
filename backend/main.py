@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from background_worker import BackgroundWorker
 from config import ACTIVE_SESSIONS_DIR, DELETED_SESSIONS_DIR, API_HOST, API_PORT, DEFAULT_USER, SESSION_PREFIX, setup_logging
@@ -343,6 +343,7 @@ class AdminSessionCreate(BaseModel):
     email: str  # Required
     phone: Optional[str] = ""
     initial_request: Optional[str] = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class SessionInfo(BaseModel):
@@ -497,13 +498,14 @@ async def create_admin_session(request: AdminSessionCreate):
         controller = result['controller']
         logger.info(f"Client session created: {controller.session_name}")
 
-        # Save name, email, phone to status.json
+        # Save name, email, phone, created_at to status.json
         status_file = ACTIVE_SESSIONS_DIR / new_guid / "status.json"
         if status_file.exists():
             status_data = json.loads(status_file.read_text())
             status_data["client_name"] = request.name
             status_data["client_email"] = request.email
             status_data["client_phone"] = request.phone or ""
+            status_data["created_at"] = request.created_at
             if request.initial_request:
                 status_data["user_request"] = request.initial_request
             status_file.write_text(json.dumps(status_data, indent=2))

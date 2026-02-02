@@ -5,6 +5,7 @@ import MessageList from './MessageList.jsx';
 import InputArea from './InputArea.jsx';
 import McpToolsLog from './McpToolsLog.jsx';
 import SessionSidebar from './SessionSidebar.jsx';
+import EmbedView from './EmbedView.jsx';
 
 // Admin password (in production, this should be an environment variable or backend auth)
 const ADMIN_PASSWORD = 'tmux@admin2026';
@@ -13,7 +14,8 @@ function getUrlParams() {
   const params = new URLSearchParams(window.location.search);
   return {
     guid: params.get('guid'),
-    embed: params.get('embed') === 'true'
+    embed: params.get('embed') === 'true',
+    theme: params.get('theme')
   };
 }
 
@@ -31,9 +33,21 @@ function isAdminLoggedIn() {
 
 function SplitChatView() {
   const urlParams = getUrlParams();
-  // Embed mode if URL has embed=true OR if user is not admin
+
+  // Early return for themed embed mode (/?guid=xxx&embed=true)
+  // This renders the dedicated themed EmbedView component
+  if (urlParams.embed) {
+    return (
+      <EmbedView
+        initialGuid={urlParams.guid}
+        initialTheme={urlParams.theme}
+      />
+    );
+  }
+
+  // Below is the Admin UI - shown when embed=false or not set
   const [isAdmin, setIsAdmin] = useState(isAdminLoggedIn());
-  const isEmbedMode = urlParams.embed || !isAdmin;
+  const isEmbedMode = !isAdmin; // Non-admin gets simplified view (no sidebar)
 
   const [messages, setMessages] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);

@@ -31,6 +31,12 @@
   transition: background 0.3s ease;
 }
 
+/* Shared gradient animation keyframes */
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
 /* Ember - Deep amber warmth */
 [data-theme="ember"] .embed-background {
   background: linear-gradient(
@@ -42,12 +48,7 @@
     #1A0A00 100%
   );
   background-size: 400% 400%;
-  animation: gradient-ember 20s ease infinite;
-}
-
-@keyframes gradient-ember {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+  animation: gradient-shift 20s ease infinite;
 }
 
 /* Coral - Soft warm light */
@@ -61,12 +62,7 @@
     #FFF8F0 100%
   );
   background-size: 400% 400%;
-  animation: gradient-coral 25s ease infinite;
-}
-
-@keyframes gradient-coral {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+  animation: gradient-shift 25s ease infinite;
 }
 
 /* Sunset - Vibrant pink-orange */
@@ -80,12 +76,7 @@
     #2D1B3D 100%
   );
   background-size: 400% 400%;
-  animation: gradient-sunset 18s ease infinite;
-}
-
-@keyframes gradient-sunset {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+  animation: gradient-shift 18s ease infinite;
 }
 
 /* Aurora - Soft dreamy pastels */
@@ -99,12 +90,7 @@
     #FFF5F8 100%
   );
   background-size: 400% 400%;
-  animation: gradient-aurora 22s ease infinite;
-}
-
-@keyframes gradient-aurora {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+  animation: gradient-shift 22s ease infinite;
 }
 
 /* Sandstone - Warm desert beige */
@@ -118,12 +104,7 @@
     #FAF6F1 100%
   );
   background-size: 400% 400%;
-  animation: gradient-sandstone 24s ease infinite;
-}
-
-@keyframes gradient-sandstone {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+  animation: gradient-shift 24s ease infinite;
 }
 
 /* Champagne - Soft golden cream */
@@ -137,12 +118,7 @@
     #FFFDF8 100%
   );
   background-size: 400% 400%;
-  animation: gradient-champagne 26s ease infinite;
-}
-
-@keyframes gradient-champagne {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+  animation: gradient-shift 26s ease infinite;
 }
 
 /* Zoom - Clean professional blue */
@@ -156,12 +132,7 @@
     #FFFFFF 100%
   );
   background-size: 400% 400%;
-  animation: gradient-zoom 28s ease infinite;
-}
-
-@keyframes gradient-zoom {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+  animation: gradient-shift 28s ease infinite;
 }
 
 /* Legacy - Classic dark mode */
@@ -175,12 +146,15 @@
     #020617 100%
   );
   background-size: 400% 400%;
-  animation: gradient-legacy 20s ease infinite;
+  animation: gradient-shift 20s ease infinite;
 }
 
-@keyframes gradient-legacy {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+/* Accessibility: Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  [data-theme] .embed-background {
+    animation: none;
+    background-position: 50% 50%;
+  }
 }
 
 /* ============================================

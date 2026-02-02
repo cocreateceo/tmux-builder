@@ -40,7 +40,6 @@ function SplitChatView() {
     return (
       <EmbedView
         initialGuid={urlParams.guid}
-        initialTheme={urlParams.theme}
       />
     );
   }

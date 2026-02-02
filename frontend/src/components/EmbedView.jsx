@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import MessageList from './MessageList';
 import InputArea from './InputArea';
-import ThemePicker from './ThemePicker';
 import McpToolsLog from './McpToolsLog';
-import { initTheme, subscribeToThemeChanges, getStoredTheme } from '../themes/ThemeManager';
+import { initTheme } from '../themes/ThemeManager';
 import useProgressSocket from '../hooks/useProgressSocket';
 import apiService from '../services/api.js';
 import '../themes/themeStyles.css';
@@ -31,9 +30,8 @@ function generateMessageId() {
  * - Full chat functionality via WebSocket
  * - Reuses existing MessageList and InputArea components
  */
-export default function EmbedView({ initialGuid, initialTheme }) {
+export default function EmbedView({ initialGuid }) {
   // State
-  const [currentTheme, setCurrentTheme] = useState(() => getStoredTheme());
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -46,18 +44,9 @@ export default function EmbedView({ initialGuid, initialTheme }) {
     guidRef.current = guid;
   }, [guid]);
 
-  // Initialize theme on mount
+  // Initialize ember theme on mount
   useEffect(() => {
-    const appliedTheme = initTheme(initialTheme);
-    setCurrentTheme(appliedTheme);
-  }, [initialTheme]);
-
-  // Subscribe to cross-tab theme changes
-  useEffect(() => {
-    const unsubscribe = subscribeToThemeChanges((newTheme) => {
-      setCurrentTheme(newTheme);
-    });
-    return unsubscribe;
+    initTheme('ember');
   }, []);
 
   // WebSocket handlers for real-time updates
@@ -165,11 +154,6 @@ export default function EmbedView({ initialGuid, initialTheme }) {
     }
   }, []); // No guid dependency - uses ref instead
 
-  // Theme change handler
-  const handleThemeChange = useCallback((newTheme) => {
-    setCurrentTheme(newTheme);
-  }, []);
-
   return (
     <div className="embed-container h-screen flex flex-col">
       {/* Animated gradient background */}
@@ -193,12 +177,6 @@ export default function EmbedView({ initialGuid, initialTheme }) {
               {statusMessage}
             </span>
           )}
-        </div>
-        <div className="flex items-center gap-4">
-          <ThemePicker
-            currentTheme={currentTheme}
-            onThemeChange={handleThemeChange}
-          />
         </div>
       </div>
 

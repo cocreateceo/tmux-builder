@@ -43,28 +43,36 @@ export function saveTheme(themeId) {
  * @returns {object|null} Theme object or null if invalid
  */
 export function applyTheme(themeId) {
-  const theme = THEMES[themeId] || THEMES[DEFAULT_THEME];
+  // Resolve to valid theme, falling back to default
+  const resolvedThemeId = isValidTheme(themeId) ? themeId : DEFAULT_THEME;
+  const theme = THEMES[resolvedThemeId];
   if (!theme) return null;
 
   const root = document.documentElement;
 
-  // Set data-theme attribute for CSS selectors
-  root.setAttribute('data-theme', themeId);
+  // Set data-theme attribute for CSS selectors (use resolved theme, not requested)
+  root.setAttribute('data-theme', resolvedThemeId);
 
   // Apply CSS variables
-  Object.entries(theme.colors).forEach(([property, value]) => {
-    root.style.setProperty(property, value);
-  });
+  if (theme.colors && typeof theme.colors === 'object') {
+    Object.entries(theme.colors).forEach(([property, value]) => {
+      root.style.setProperty(property, value);
+    });
+  }
 
-  // Dispatch event for other components
-  window.dispatchEvent(new CustomEvent('themechange', {
-    detail: {
-      theme: themeId,
-      colors: theme.colors,
-      type: theme.type,
-      name: theme.name
-    }
-  }));
+  // Dispatch event for other components (wrapped in try-catch for CSP environments)
+  try {
+    window.dispatchEvent(new CustomEvent('themechange', {
+      detail: {
+        theme: resolvedThemeId,
+        colors: theme.colors,
+        type: theme.type,
+        name: theme.name
+      }
+    }));
+  } catch (e) {
+    // Silently ignore in restricted environments
+  }
 
   return theme;
 }
@@ -130,9 +138,11 @@ export function isLightTheme() {
  */
 export function subscribeToThemeChanges(callback) {
   const handler = (e) => {
-    if (e.key === STORAGE_KEY && e.newValue && isValidTheme(e.newValue)) {
-      applyTheme(e.newValue);
-      callback(e.newValue);
+    if (e.key === STORAGE_KEY) {
+      // Handle both theme change and deletion (reset to default)
+      const newTheme = (e.newValue && isValidTheme(e.newValue)) ? e.newValue : DEFAULT_THEME;
+      applyTheme(newTheme);
+      callback(newTheme);
     }
   };
 

@@ -519,8 +519,8 @@ async def create_admin_session(request: AdminSessionCreate):
             await controller.send_message_async(request.initial_request)
             logger.info("Initial request sent to Claude CLI")
 
-        # Generate session link with embed=true to hide sidebar
-        session_link = f"{BASE_URL}/?guid={new_guid}&embed=true"
+        # Generate session link for client dashboard
+        session_link = f"{BASE_URL}/client?guid={new_guid}"
 
         return {
             "success": True,

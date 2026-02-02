@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import MessageList from './MessageList';
 import InputArea from './InputArea';
 import ThemePicker from './ThemePicker';
@@ -6,6 +6,19 @@ import { initTheme, subscribeToThemeChanges, getStoredTheme } from '../themes/Th
 import useProgressSocket from '../hooks/useProgressSocket';
 import apiService from '../services/api.js';
 import '../themes/themeStyles.css';
+
+// Helper to validate GUID format
+function isValidGuid(guid) {
+  if (!guid || typeof guid !== 'string') return false;
+  if (guid === 'null' || guid === 'undefined') return false;
+  return guid.length >= 8;
+}
+
+// Generate unique message ID
+let messageIdCounter = 0;
+function generateMessageId() {
+  return `msg_${Date.now()}_${++messageIdCounter}`;
+}
 
 /**
  * EmbedView - Themed embed mode container for tmux-builder
@@ -23,7 +36,14 @@ export default function EmbedView({ initialGuid, initialTheme }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [guid, setGuid] = useState(initialGuid || null);
+  // Validate initialGuid before using
+  const [guid, setGuid] = useState(() => isValidGuid(initialGuid) ? initialGuid : null);
+
+  // Use ref for guid in callbacks to avoid stale closure issues
+  const guidRef = useRef(guid);
+  useEffect(() => {
+    guidRef.current = guid;
+  }, [guid]);
 
   // Initialize theme on mount
   useEffect(() => {
@@ -44,9 +64,10 @@ export default function EmbedView({ initialGuid, initialTheme }) {
     onSummary: (data) => {
       if (data.message) {
         setMessages(prev => [...prev, {
+          id: generateMessageId(),
           role: 'assistant',
           content: data.message,
-          timestamp: data.timestamp
+          timestamp: data.timestamp || new Date().toISOString()
         }]);
       }
       setLoading(false);
@@ -54,9 +75,10 @@ export default function EmbedView({ initialGuid, initialTheme }) {
     onDeployed: (data) => {
       if (data.message) {
         setMessages(prev => [...prev, {
+          id: generateMessageId(),
           role: 'assistant',
           content: `Deployed: ${data.message}`,
-          timestamp: data.timestamp
+          timestamp: data.timestamp || new Date().toISOString()
         }]);
       }
     },
@@ -64,9 +86,10 @@ export default function EmbedView({ initialGuid, initialTheme }) {
       const content = data.message || data.content;
       if (content) {
         setMessages(prev => [...prev, {
+          id: generateMessageId(),
           role: 'assistant',
           content,
-          timestamp: data.timestamp
+          timestamp: data.timestamp || new Date().toISOString()
         }]);
       }
       setLoading(false);
@@ -90,7 +113,12 @@ export default function EmbedView({ initialGuid, initialTheme }) {
     apiService.getHistory(guid)
       .then(historyResponse => {
         if (historyResponse?.messages) {
-          setMessages(historyResponse.messages);
+          // Add stable IDs to history messages
+          const messagesWithIds = historyResponse.messages.map((msg, index) => ({
+            ...msg,
+            id: msg.id || `history_${index}_${Date.now()}`
+          }));
+          setMessages(messagesWithIds);
         }
       })
       .catch((err) => {
@@ -98,10 +126,13 @@ export default function EmbedView({ initialGuid, initialTheme }) {
       });
   }, [guid]);
 
-  // Send message handler
+  // Send message handler - uses guidRef to avoid stale closure
   const handleSendMessage = useCallback(async (messageData) => {
     const { message } = messageData;
+    const currentGuid = guidRef.current;
+
     setMessages(prev => [...prev, {
+      id: generateMessageId(),
       role: 'user',
       content: message,
       timestamp: new Date().toISOString()
@@ -110,14 +141,15 @@ export default function EmbedView({ initialGuid, initialTheme }) {
     setError(null);
 
     try {
-      const response = await apiService.sendMessage(message, guid);
+      const response = await apiService.sendMessage(message, currentGuid);
       if (response.success && response.response) {
         // Store GUID if returned (auto-created session)
-        if (response.guid && response.guid !== guid) {
+        if (response.guid && response.guid !== currentGuid) {
           setGuid(response.guid);
           console.log('[EmbedView] Stored new GUID:', response.guid);
         }
         setMessages(prev => [...prev, {
+          id: generateMessageId(),
           role: 'assistant',
           content: response.response,
           timestamp: response.timestamp || new Date().toISOString()
@@ -128,7 +160,7 @@ export default function EmbedView({ initialGuid, initialTheme }) {
     } finally {
       setLoading(false);
     }
-  }, [guid]);
+  }, []); // No guid dependency - uses ref instead
 
   // Theme change handler
   const handleThemeChange = useCallback((newTheme) => {

@@ -9,7 +9,7 @@ import {
   Rocket
 } from 'lucide-react';
 
-function getEventIcon(type) {
+function getEventIcon(type, isSessionDone) {
   switch (type) {
     case 'ack':
       return <CheckCircle className="w-3.5 h-3.5 text-green-500" />;
@@ -24,7 +24,10 @@ function getEventIcon(type) {
     case 'summary':
       return <CheckCircle className="w-3.5 h-3.5 text-green-500" />;
     default:
-      return <Loader className="w-3.5 h-3.5 text-yellow-500 animate-spin" />;
+      // Status/progress messages: spinning while active, green tick when done
+      return isSessionDone
+        ? <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+        : <Loader className="w-3.5 h-3.5 text-yellow-500 animate-spin" />;
   }
 }
 
@@ -153,22 +156,26 @@ export function ActivityPanel({
             No activity yet
           </div>
         ) : (
-          logs.map((log, index) => (
-            <div
-              key={index}
-              className="flex gap-2 text-xs"
-            >
-              <span className="font-mono whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
-                {formatTime(log.timestamp)}
-              </span>
-              <div className="flex items-start gap-1.5 min-w-0">
-                {getEventIcon(log.type)}
-                <span className="break-words" style={{ color: 'var(--text-secondary)' }}>
-                  {log.message || log.type}
+          (() => {
+            // Check if session has completed (has done or summary entry)
+            const isSessionDone = logs.some(log => log.type === 'done' || log.type === 'summary');
+            return logs.map((log, index) => (
+              <div
+                key={index}
+                className="flex gap-2 text-xs"
+              >
+                <span className="font-mono whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+                  {formatTime(log.timestamp)}
                 </span>
+                <div className="flex items-start gap-1.5 min-w-0">
+                  {getEventIcon(log.type, isSessionDone)}
+                  <span className="break-words" style={{ color: 'var(--text-secondary)' }}>
+                    {log.message || log.type}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))
+            ));
+          })()
         )}
         <div ref={logsEndRef} />
       </div>

@@ -85,12 +85,74 @@ tmux-cba6eaf3633e-shipshop-20260204-084700  (ship shop)
 | `backend/session_initializer.py` | Calls AWS user creation on session init |
 | `backend/system_prompt_generator.py` | Injects per-user credentials into system prompt |
 
-### Credential Flow
-1. New session created → `aws_user_manager.create_user_for_session(guid)`
-2. IAM user created: `tmux-user-{guid[:12]}`
-3. Access keys generated and stored in `session/.aws_credentials`
-4. System prompt uses these credentials (not root profile)
-5. All resources tagged with `guid={guid[:12]}`
+### Credential Flow (Detailed with File/Line Numbers)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 1. API Request → main.py:201 initialize_new_session()                   │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 2. session_initializer.py:115-131                                       │
+│                                                                         │
+│    if AWS_PER_USER_IAM_ENABLED:  # config.py:52 (default: true)         │
+│        aws_manager = AWSUserManager()                                   │
+│        aws_credentials = await aws_manager.get_or_create_credentials()  │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 3. aws_user_manager.py:99-175                                           │
+│                                                                         │
+│    Using ROOT profile (cocreate):                                       │
+│    a) iam.create_user(UserName="tmux-user-{guid[:12]}")                 │
+│    b) iam.put_user_policy(PolicyDocument=GUID-scoped policy)            │
+│    c) iam.create_access_key() → returns AccessKeyId, SecretAccessKey    │
+│    d) Save to: sessions/active/{guid}/.aws_credentials                  │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 4. system_prompt_generator.py:33-58                                     │
+│                                                                         │
+│    generate_system_prompt(session_path, guid, aws_credentials)          │
+│                                                                         │
+│    Injects into system_prompt.txt:                                      │
+│    export AWS_ACCESS_KEY_ID=AKIA...                                     │
+│    export AWS_SECRET_ACCESS_KEY=...                                     │
+│    export AWS_DEFAULT_REGION=us-east-1                                  │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 5. Claude CLI uses per-user credentials for all AWS operations          │
+│    - NOT using root profile                                             │
+│    - Can only access GUID-prefixed resources                            │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Credentials Storage
+
+**File Path:** `sessions/active/{guid}/.aws_credentials`
+
+**JSON Structure:**
+```json
+{
+  "user_name": "tmux-user-cba6eaf3633e",
+  "access_key_id": "AKIATT3ZMWWG...",
+  "secret_access_key": "Z9XsTIRO2tKJ...",
+  "region": "us-east-1",
+  "guid": "cba6eaf3633edfcf16769fb3dfc56f193ea3230d48d9079fd88929f71b71e83d"
+}
+```
+
+### How Root Credentials Create Per-User
+
+1. **Root Profile:** `cocreate` (configured in `~/.aws/credentials` on EC2)
+2. **Root has IAM permissions** to create/manage `tmux-user-*` users
+3. **Per-user gets LIMITED permissions** - can only access `tmux-{their-guid}-*` resources
+4. **Isolation:** User A cannot access User B's resources
 
 ---
 
@@ -224,6 +286,56 @@ All deployments routed to **us-east-1** region using `cocreate` AWS profile.
 AWS_ROOT_PROFILE = "cocreate"
 AWS_DEFAULT_REGION = "us-east-1"
 ```
+
+---
+
+## 8. No Local Deployment - 100% AWS Only
+
+### Enforced Rules in System Prompt
+
+The system prompt explicitly forbids local deployment:
+
+```markdown
+### ⚠️ CRITICAL: AWS-ONLY DEPLOYMENT (NON-NEGOTIABLE)
+
+**NEVER deploy locally. ALWAYS deploy to AWS.**
+
+- ❌ NEVER use `npm run dev` or `npm start` for "deployment"
+- ❌ NEVER say "running on localhost" as a deployment
+- ❌ NEVER serve files with `python -m http.server` or similar
+- ✅ ALWAYS deploy to S3 + CloudFront
+- ✅ ALWAYS provide a real CloudFront URL (https://dXXXXXX.cloudfront.net)
+
+**Local development is ONLY for building/testing before AWS deployment.**
+
+The task is NOT complete until the site is live on AWS CloudFront.
+```
+
+### Location
+- **File:** `backend/system_prompt_generator.py`
+- **Lines:** 336-348
+
+---
+
+## 9. Skills Imported from Career Builder
+
+### Skills Location
+Skills were imported from the career builder project into:
+- `.claude/skills/aws/` - AWS deployment skills
+- `.claude/skills/testing/` - Testing and verification skills
+- `.claude/agents/deployers/` - Deployment agents
+
+### Key Skills
+| Skill | Path | Purpose |
+|-------|------|---------|
+| S3 Upload | `.claude/skills/aws/s3-upload.md` | Upload files to S3 |
+| CloudFront Create | `.claude/skills/aws/cloudfront-create.md` | Create CDN distributions |
+| CloudFront Invalidate | `.claude/skills/aws/cloudfront-invalidate.md` | Clear CDN cache |
+| CORS Configuration | `.claude/skills/aws/cors-configuration.md` | Configure CORS headers |
+| AWS S3 Static Deployer | `.claude/agents/deployers/aws-s3-static.md` | Full deployment agent |
+
+### Source
+Imported from: `C:\Projects\ai-product-studio` (career builder project)
 
 ---
 

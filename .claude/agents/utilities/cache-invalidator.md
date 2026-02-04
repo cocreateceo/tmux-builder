@@ -17,8 +17,8 @@ Invalidate cached content on CDN distributions to ensure users receive the lates
 
 ## Configuration
 
-- **AWS Profile**: sunwaretech
-- **Azure Profile**: sunwaretech
+- **AWS Profile**: cocreate
+- **Azure Profile**: cocreate
 - **Supported Services**: AWS CloudFront, Azure CDN
 
 ---

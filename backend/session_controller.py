@@ -15,7 +15,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -157,7 +157,7 @@ Remember: Start with ./notify.sh ack, report progress, end with ./notify.sh done
         message = {
             "role": role,
             "content": content,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         self.chat_history_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.chat_history_path, 'a', encoding='utf-8') as f:

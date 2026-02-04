@@ -17,7 +17,7 @@ Deploy Node.js, Python, .NET, and other dynamic applications to Azure App Servic
 
 ## Configuration
 
-- **Azure Profile**: sunwaretech
+- **Azure Profile**: cocreate
 - **Default Region**: eastus
 - **Service**: App Service
 

@@ -13,7 +13,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 import json
 
@@ -21,6 +21,7 @@ from config import (
     SESSIONS_DIR,
     TMUX_SESSION_PREFIX,
     ACTIVE_SESSIONS_DIR,
+    AWS_PER_USER_IAM_ENABLED,
 )
 from tmux_helper import TmuxHelper
 from notify_generator import generate_notify_script, get_notify_script_path
@@ -109,20 +110,36 @@ class SessionInitializer:
             notify_path = generate_notify_script(session_path, guid)
             logger.info(f"notify.sh created at: {notify_path}")
 
-            # Step 4: Generate system_prompt.txt
-            logger.info("Step 4: Generating system_prompt.txt...")
-            system_prompt_path = generate_system_prompt(session_path, guid)
+            # Step 4: Create per-user AWS credentials (if enabled)
+            aws_credentials = None
+            if AWS_PER_USER_IAM_ENABLED:
+                logger.info("Step 4: Creating per-user AWS credentials...")
+                try:
+                    from aws_user_manager import AWSUserManager
+                    aws_manager = AWSUserManager()
+                    aws_credentials = await aws_manager.get_or_create_credentials(guid, session_path)
+                    logger.info(f"AWS user created: {aws_credentials.get('user_name')}")
+                except Exception as e:
+                    logger.warning(f"Failed to create per-user AWS credentials: {e}")
+                    logger.warning("Will fall back to root profile for this session")
+                    aws_credentials = None
+            else:
+                logger.info("Step 4: Per-user IAM disabled, using root profile")
+
+            # Step 5: Generate system_prompt.txt (with AWS credentials if available)
+            logger.info("Step 5: Generating system_prompt.txt...")
+            system_prompt_path = generate_system_prompt(session_path, guid, aws_credentials)
             logger.info(f"system_prompt.txt created at: {system_prompt_path}")
 
-            # Step 5: Clear any stale prompt.txt to prevent auto-execution of old tasks
-            logger.info("Step 5: Clearing stale prompt.txt...")
+            # Step 6: Clear any stale prompt.txt to prevent auto-execution of old tasks
+            logger.info("Step 6: Clearing stale prompt.txt...")
             prompt_file = session_path / "prompt.txt"
             if prompt_file.exists():
                 prompt_file.unlink()
                 logger.info("  Removed stale prompt.txt")
 
-            # Step 6: Health check - ask Claude to read system_prompt.txt and ack
-            logger.info("Step 6: Health check - verifying Claude CLI is responsive...")
+            # Step 7: Health check - ask Claude to read system_prompt.txt and ack
+            logger.info("Step 7: Health check - verifying Claude CLI is responsive...")
 
             # Claude is in session folder, use relative path for notify.sh
             # IMPORTANT: Tell Claude to ONLY ack, NOT to look for tasks
@@ -140,7 +157,7 @@ class SessionInitializer:
             if ack_received:
                 logger.info("Ack received - Claude CLI is alive and ready")
 
-            # Step 7: Initialize status.json with session metadata
+            # Step 8: Initialize status.json with session metadata
             # IMPORTANT: Preserve existing metadata if status.json already exists
             # This prevents overwriting client data when re-initializing a session
             status_file_path = session_path / "status.json"
@@ -158,14 +175,15 @@ class SessionInitializer:
                 'message': 'Session ready for chat',
                 'phase': 'ready',
                 # Preserve created_at if exists, otherwise set new
-                'created_at': existing_status.get('created_at') or datetime.utcnow().isoformat() + 'Z',
-                'updated_at': datetime.utcnow().isoformat() + 'Z',
+                'created_at': existing_status.get('created_at') or datetime.now(timezone.utc).isoformat(),
+                'updated_at': datetime.now(timezone.utc).isoformat(),
                 'guid': guid,
                 # Preserve critical user data - use new values only if provided AND not default
-                'email': email if email and email != 'default_user@demo.local' else existing_status.get('email', email),
-                'phone': phone if phone else existing_status.get('phone', ''),
-                'user_request': user_request if user_request else existing_status.get('user_request', ''),
-                'client_name': client_name if client_name else existing_status.get('client_name', ''),
+                # Fix: prefer existing value if new value is empty/default
+                'email': (email if (email and email != 'default_user@demo.local') else None) or existing_status.get('email') or email,
+                'phone': phone or existing_status.get('phone') or '',
+                'user_request': user_request or existing_status.get('user_request') or '',
+                'client_name': client_name or existing_status.get('client_name') or '',
                 # Preserve other fields
                 'first_message_sent': existing_status.get('first_message_sent', False),
                 'deployed_url': existing_status.get('deployed_url'),
@@ -253,8 +271,13 @@ class SessionInitializer:
             if not created_at_str:
                 return None
 
-            created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-            age = datetime.utcnow() - created_at.replace(tzinfo=None)
+            # Handle both 'Z' suffix and '+00:00' formats
+            if created_at_str.endswith('Z'):
+                created_at_str = created_at_str[:-1] + '+00:00'
+            created_at = datetime.fromisoformat(created_at_str)
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            age = datetime.now(timezone.utc) - created_at
 
             return age.total_seconds() / 86400
 

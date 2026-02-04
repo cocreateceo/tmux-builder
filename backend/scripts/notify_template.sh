@@ -11,6 +11,8 @@
 #   ./notify.sh working "Refactoring auth"   # What you're working on
 #   ./notify.sh progress 50                  # Progress percentage
 #   ./notify.sh found "3 bugs in login.py"   # Report findings
+#   ./notify.sh deployed "https://xxx.cloudfront.net"  # Report deployed URL
+#   ./notify.sh resources '{"s3Bucket":"tmux-xxx","cloudFrontId":"E123"}'  # Report AWS resources
 #   ./notify.sh done                         # Task completed
 #   ./notify.sh error "Config not found"     # Report error
 # =============================================================================

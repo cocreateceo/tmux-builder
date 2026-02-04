@@ -7,7 +7,7 @@ Create and configure Amazon ElastiCache clusters for in-memory caching using Red
 ## Prerequisites
 
 - AWS CLI installed and configured
-- `sunwaretech` AWS profile configured with appropriate permissions
+- `cocreate` AWS profile configured with appropriate permissions
 - VPC with appropriate subnets for cache placement
 - Security group allowing Redis (6379) or Memcached (11211) traffic
 
@@ -32,14 +32,14 @@ Create and configure Amazon ElastiCache clusters for in-memory caching using Red
 Always set the AWS profile before running commands:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 export AWS_DEFAULT_REGION=us-east-1
 ```
 
 ### Create Cache Subnet Group
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws elasticache create-cache-subnet-group \
   --cache-subnet-group-name {cache_subnet_group} \
   --cache-subnet-group-description "Subnet group for {cluster_id}" \
@@ -50,7 +50,7 @@ aws elasticache create-cache-subnet-group \
 ### Create Redis Cluster (Single Node)
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws elasticache create-cache-cluster \
   --cache-cluster-id {cluster_id} \
   --engine redis \
@@ -65,7 +65,7 @@ aws elasticache create-cache-cluster \
 ### Create Redis Replication Group (High Availability)
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws elasticache create-replication-group \
   --replication-group-id {cluster_id} \
   --replication-group-description "Redis replication group for {cluster_id}" \
@@ -86,7 +86,7 @@ aws elasticache create-replication-group \
 ### Create Memcached Cluster
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws elasticache create-cache-cluster \
   --cache-cluster-id {cluster_id} \
   --engine memcached \
@@ -101,7 +101,7 @@ aws elasticache create-cache-cluster \
 ### Create Redis Cluster Mode Enabled (Sharding)
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws elasticache create-replication-group \
   --replication-group-id {cluster_id} \
   --replication-group-description "Redis cluster mode enabled" \
@@ -123,7 +123,7 @@ aws elasticache create-replication-group \
 ### Create Custom Parameter Group
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws elasticache create-cache-parameter-group \
   --cache-parameter-group-name my-redis-params \
   --cache-parameter-group-family redis7 \
@@ -141,7 +141,7 @@ aws elasticache modify-cache-parameter-group \
 Check cluster status and get connection endpoint:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 
 # Get cache cluster status
 aws elasticache describe-cache-clusters \

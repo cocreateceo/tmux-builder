@@ -6,7 +6,7 @@
 # the tmux-builder application. Run with --help for usage information.
 #
 # Prerequisites:
-#   - AWS CLI configured with 'sunwaretech' profile (or modify PROFILE variable)
+#   - AWS CLI configured with 'cocreate' profile (or modify PROFILE variable)
 #   - Sufficient IAM permissions for EC2, CloudFront operations
 #
 # Created: 2026-01-28
@@ -17,7 +17,7 @@ set -e
 #------------------------------------------------------------------------------
 # Configuration
 #------------------------------------------------------------------------------
-PROFILE="sunwaretech"
+PROFILE="cocreate"
 REGION="us-east-1"
 INSTANCE_ID="i-07dd29bd83fa7a0a8"
 SECURITY_GROUP_ID="sg-03b2164de3520948d"
@@ -71,7 +71,7 @@ Commands:
   show-status         Show current infrastructure status
 
 Options:
-  --profile PROFILE   AWS profile to use (default: sunwaretech)
+  --profile PROFILE   AWS profile to use (default: cocreate)
   --region REGION     AWS region (default: us-east-1)
   --dry-run           Show what would be done without making changes
   -h, --help          Show this help message

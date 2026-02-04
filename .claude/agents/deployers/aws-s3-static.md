@@ -15,7 +15,7 @@ Deploy static websites to AWS S3 buckets and configure CloudFront CDN for global
 
 ## Configuration
 
-- **AWS Profile**: sunwaretech
+- **AWS Profile**: cocreate
 - **Default Region**: us-east-1
 - **Service**: S3 + CloudFront
 

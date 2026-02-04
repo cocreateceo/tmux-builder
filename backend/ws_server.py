@@ -182,6 +182,19 @@ class ProgressWebSocketServer:
                 if deployed_url:
                     self._save_deployed_url(guid, deployed_url)
                     logger.info(f"[{guid}] Deployed URL saved: {deployed_url}")
+            elif msg_type == 'resources':
+                # Save AWS resources to DynamoDB
+                resource_data = message.get('data', {})
+                if isinstance(resource_data, str):
+                    try:
+                        resource_data = json.loads(resource_data)
+                    except json.JSONDecodeError:
+                        logger.warning(f"[{guid}] Invalid JSON in resources data")
+                        resource_data = {}
+
+                if resource_data:
+                    await self._save_resources_to_dynamodb(guid, resource_data)
+                    logger.info(f"[{guid}] AWS resources saved: {list(resource_data.keys())}")
 
             # Broadcast to all subscribers of this GUID
             await self._broadcast(guid, message)
@@ -269,6 +282,79 @@ class ProgressWebSocketServer:
 
         except Exception as e:
             logger.warning(f"Failed to save deployed URL: {e}")
+
+    async def _save_resources_to_dynamodb(self, guid: str, resource_data: dict) -> bool:
+        """Save AWS resources to DynamoDB for tracking.
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        saved_to_dynamo = False
+        saved_to_local = False
+
+        try:
+            from dynamodb_client import get_dynamo_client
+
+            # Get session info to determine user_id
+            session_path = ACTIVE_SESSIONS_DIR / guid
+            status_file = session_path / "status.json"
+
+            user_id = "unknown"
+            project_name = "Unnamed Project"
+            email = ""
+
+            if status_file.exists():
+                status = json.loads(status_file.read_text())
+                # Use email as user_id (primary identifier)
+                email = status.get('email', '')
+                user_id = email if email else status.get('client_name', guid)
+                project_name = status.get('initial_request', '')[:100] or status.get('user_request', '')[:100] or "Project"
+
+            # Save to DynamoDB
+            dynamo = get_dynamo_client()
+            saved_to_dynamo = dynamo.save_project_resources(
+                user_id=user_id,
+                project_id=guid,
+                project_name=project_name,
+                aws_resources=resource_data,
+                email=email
+            )
+
+            if saved_to_dynamo:
+                logger.info(f"[{guid}] Resources saved to DynamoDB for user {user_id}")
+
+        except ImportError:
+            logger.warning("DynamoDB client not available - resources not saved to cloud")
+        except Exception as e:
+            logger.error(f"Failed to save resources to DynamoDB: {e}")
+
+        # Always try to save to status.json for local access (fallback)
+        try:
+            session_path = ACTIVE_SESSIONS_DIR / guid
+            status_file = session_path / "status.json"
+            if status_file.exists():
+                status = json.loads(status_file.read_text())
+                if 'aws_resources' not in status:
+                    status['aws_resources'] = {}
+                status['aws_resources'].update(resource_data)
+                status['updated_at'] = datetime.now().isoformat() + 'Z'
+                status_file.write_text(json.dumps(status, indent=2))
+                saved_to_local = True
+                logger.info(f"[{guid}] Resources saved to status.json")
+        except Exception as e:
+            logger.error(f"Failed to save resources to status.json: {e}")
+
+        # Notify UI if DynamoDB save failed but local succeeded
+        if not saved_to_dynamo and saved_to_local:
+            warning_msg = {
+                "guid": guid,
+                "type": "warning",
+                "data": "AWS resources saved locally but not to cloud tracking. Resources may not appear in user dashboard.",
+                "timestamp": datetime.now().isoformat()
+            }
+            await self._broadcast(guid, warning_msg)
+
+        return saved_to_dynamo or saved_to_local
 
     def _persist_to_file(self, guid: str, message: dict):
         """Append message to activity_log.jsonl file."""

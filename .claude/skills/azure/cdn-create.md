@@ -7,7 +7,7 @@ Create and configure Azure CDN profiles and endpoints to accelerate content deli
 ## Prerequisites
 
 - Azure CLI installed and configured (`az login`)
-- `sunwaretech` Azure profile/subscription configured
+- `cocreate` Azure profile/subscription configured
 - Origin server (Storage Account, Web App, etc.) already created
 - Appropriate permissions to create CDN resources
 
@@ -29,7 +29,7 @@ Create and configure Azure CDN profiles and endpoints to accelerate content deli
 Always set the subscription before running commands:
 
 ```bash
-az account set --subscription "sunwaretech"
+az account set --subscription "cocreate"
 ```
 
 ### Create CDN Profile

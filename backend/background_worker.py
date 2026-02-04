@@ -1,10 +1,11 @@
 """Background worker for async session initialization."""
 
+import asyncio
 import threading
 import logging
 import time
 from typing import Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ class BackgroundWorker:
                 'email': email,
                 'phone': phone,
                 'user_request': user_request,
-                'started_at': datetime.utcnow().isoformat() + 'Z',
+                'started_at': datetime.now(timezone.utc).isoformat(),
                 'progress': 0,
                 'message': 'Queued for initialization'
             }
@@ -102,9 +103,9 @@ class BackgroundWorker:
                 'message': 'Initializing session...'
             })
 
-            # Initialize session
+            # Initialize session (async method - run in event loop)
             initializer = SessionInitializer()
-            result = initializer.initialize_session(guid, email, phone, user_request)
+            result = asyncio.run(initializer.initialize_session(guid, email, phone, user_request))
 
             if result['success']:
                 # Update status to ready
@@ -146,7 +147,7 @@ class BackgroundWorker:
         with self.lock:
             if guid in self.jobs:
                 self.jobs[guid].update(updates)
-                self.jobs[guid]['updated_at'] = datetime.utcnow().isoformat() + 'Z'
+                self.jobs[guid]['updated_at'] = datetime.now(timezone.utc).isoformat()
 
     def get_job_status(self, guid: str) -> Dict[str, Any]:
         """
@@ -179,8 +180,13 @@ class BackgroundWorker:
 
             for guid, job in self.jobs.items():
                 # Parse started_at timestamp
-                started_at = datetime.fromisoformat(job['started_at'].replace('Z', '+00:00'))
-                age_seconds = (datetime.utcnow() - started_at.replace(tzinfo=None)).total_seconds()
+                started_at_str = job['started_at']
+                if started_at_str.endswith('Z'):
+                    started_at_str = started_at_str[:-1] + '+00:00'
+                started_at = datetime.fromisoformat(started_at_str)
+                if started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=timezone.utc)
+                age_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
 
                 # Remove if old and not pending/initializing
                 if age_seconds > max_age_seconds and job['status'] not in ['pending', 'initializing']:

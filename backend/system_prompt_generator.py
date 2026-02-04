@@ -10,7 +10,8 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
-from config import PROJECT_ROOT
+from config import PROJECT_ROOT, AWS_ROOT_PROFILE, AWS_DEFAULT_REGION
+from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +20,52 @@ CLAUDE_SKILLS_DIR = PROJECT_ROOT / ".claude" / "skills"
 CLAUDE_AGENTS_DIR = PROJECT_ROOT / ".claude" / "agents"
 
 
-def generate_system_prompt(session_path: Path, guid: str) -> Path:
+def _generate_aws_config_section(aws_credentials: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Generate the AWS configuration section for the system prompt.
+
+    Args:
+        aws_credentials: Per-user AWS credentials dict, or None to use root profile
+
+    Returns:
+        AWS configuration section as string
+    """
+    if aws_credentials:
+        # Per-user credentials (isolated deployment)
+        return f'''## AWS CONFIGURATION
+
+**Session-Specific AWS Credentials** (isolated to your GUID-prefixed resources):
+```bash
+export AWS_ACCESS_KEY_ID={aws_credentials['access_key_id']}
+export AWS_SECRET_ACCESS_KEY={aws_credentials['secret_access_key']}
+export AWS_DEFAULT_REGION={aws_credentials.get('region', AWS_DEFAULT_REGION)}
+```
+
+**IMPORTANT:** Your AWS credentials are scoped to resources prefixed with your GUID.
+- S3 buckets MUST be named: `tmux-{aws_credentials['guid'][:12]}-<project-name>`
+- All resources will be tagged with `guid={aws_credentials['guid'][:12]}`
+
+### Resource Naming Convention
+- S3 Bucket: `tmux-{aws_credentials['guid'][:12]}-<descriptive-name>`
+- CloudFront: Tag with `guid={aws_credentials['guid'][:12]}` and `created-by=tmux-builder`'''
+    else:
+        # Fall back to root profile
+        return f'''## AWS CONFIGURATION
+
+Use AWS CLI with profile:
+```bash
+export AWS_PROFILE={AWS_ROOT_PROFILE}
+```'''
+
+
+def generate_system_prompt(session_path: Path, guid: str, aws_credentials: Optional[Dict[str, Any]] = None) -> Path:
     """
     Generate a comprehensive system_prompt.txt for a Claude CLI session.
 
     Args:
         session_path: Path to the session directory
         guid: The session GUID
+        aws_credentials: Optional per-user AWS credentials dict
 
     Returns:
         Path to the generated system_prompt.txt
@@ -101,9 +141,20 @@ Use `./notify.sh` to communicate with the UI. The script is in your current dire
 ./notify.sh phase "deployment"           # Current phase of work
 ./notify.sh created "src/App.tsx"        # File you created
 ./notify.sh deployed "https://..."       # Deployed URL
+./notify.sh resources '{{"s3Bucket":"tmux-xxx","cloudFrontId":"E123","cloudFrontUrl":"https://xxx.cloudfront.net"}}'  # REQUIRED: Report AWS resources
 ./notify.sh screenshot "path/to/img.png" # Screenshot taken
 ./notify.sh test "All 12 tests passing"  # Test results
 ```
+
+**MANDATORY: Resource Reporting (REQUIRED after creating ANY AWS resource):**
+After creating ANY AWS resource, you MUST call `./notify.sh resources` with a JSON object containing:
+
+```bash
+# Example: After creating S3 bucket and CloudFront distribution
+./notify.sh resources '{{"s3Bucket":"tmux-abc123-myproject","cloudFrontId":"E1234567890","cloudFrontUrl":"https://d123abc.cloudfront.net","region":"us-east-1"}}'
+```
+
+This data is saved to DynamoDB for tracking all AWS resources per user/project.
 
 **IMPORTANT - Summary (REQUIRED before done):**
 Before calling `done`, you MUST write a formatted summary to `summary.md` and then call `./notify.sh summary`.
@@ -282,9 +333,23 @@ You have access to skills and agents at these absolute paths:
 
 ## DEPLOYMENT REQUIREMENTS
 
+### ⚠️ CRITICAL: AWS-ONLY DEPLOYMENT (NON-NEGOTIABLE)
+
+**NEVER deploy locally. ALWAYS deploy to AWS.**
+
+- ❌ NEVER use `npm run dev` or `npm start` for "deployment"
+- ❌ NEVER say "running on localhost" as a deployment
+- ❌ NEVER serve files with `python -m http.server` or similar
+- ✅ ALWAYS deploy to S3 + CloudFront
+- ✅ ALWAYS provide a real CloudFront URL (https://dXXXXXX.cloudfront.net)
+
+**Local development is ONLY for building/testing before AWS deployment.**
+
+The task is NOT complete until the site is live on AWS CloudFront.
+
 ### End Result Must Include
 
-1. **Working CloudFront URL** - The site must load and function
+1. **Working CloudFront URL** - The site must load and function (NOT localhost!)
 2. **All Assets Loading** - Images, fonts, CSS, JS must all load
 3. **CORS Configured** - No CORS errors in browser console
 4. **Responsive Design** - Works on mobile, tablet, desktop
@@ -385,23 +450,21 @@ Before calling `./notify.sh done`:
 
 ---
 
-## AWS CONFIGURATION
-
-Use AWS CLI with profile:
-```bash
-export AWS_PROFILE=sunwaretech
-```
+{_generate_aws_config_section(aws_credentials)}
 
 ### Typical Deployment Flow
 
 1. Build application in `code/`
-2. Create/configure S3 bucket
+2. Create/configure S3 bucket (use GUID prefix: `tmux-{{guid[:12]}}-projectname`)
 3. Upload to S3 with correct content types
 4. Configure S3 CORS
 5. Create/update CloudFront distribution
 6. Wait for deployment
-7. Test and fix any issues
-8. Report URL via `./notify.sh deployed "https://..."`
+7. **REQUIRED:** Report all AWS resources via `./notify.sh resources '{{"s3Bucket":"...","cloudFrontId":"...","cloudFrontUrl":"..."}}'`
+8. Test and fix any issues
+9. Report URL via `./notify.sh deployed "https://..."`
+
+**⚠️ DO NOT skip step 7!** All AWS resources must be tracked for user management and cleanup.
 
 ---
 
@@ -414,6 +477,35 @@ export AWS_PROFILE=sunwaretech
 - CSS-in-JS or Tailwind (configured properly)
 - No console.logs in production code
 - Proper error boundaries
+
+### CRITICAL: Tailwind CSS Version (MUST USE v3)
+
+**ALWAYS install Tailwind v3, NOT v4.** Tailwind v4 has incompatible syntax that breaks layouts.
+
+```bash
+# ✅ CORRECT - Use v3
+npm install -D tailwindcss@3 postcss autoprefixer
+npx tailwindcss init -p
+
+# ❌ WRONG - Do NOT use v4
+npm install tailwindcss  # This installs v4 by default - BREAKS LAYOUTS
+```
+
+**Tailwind v3 index.css (REQUIRED):**
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+```
+
+**DO NOT use Tailwind v4 syntax:**
+```css
+/* ❌ WRONG - v4 syntax breaks responsive classes */
+@import "tailwindcss";
+@theme {{ ... }}
+```
+
+If you see `@import "tailwindcss"` or `@theme` blocks, you have v4 installed - REMOVE and reinstall v3.
 
 ### WEBSITE DESIGN GUIDELINES (OPTIONAL ENHANCEMENTS)
 
@@ -848,6 +940,11 @@ fi
 # Screenshot MUST show hero section (page scrolled to top)
 ./notify.sh progress 90
 
+# ═══════════════════════════════════════════════════════════
+# MANDATORY: Report all AWS resources created
+# ═══════════════════════════════════════════════════════════
+./notify.sh resources '{{"s3Bucket":"tmux-abc123-saas-landing","cloudFrontId":"E1234567890ABC","cloudFrontUrl":"https://d123456.cloudfront.net","region":"us-east-1"}}'
+
 ./notify.sh deployed "https://d123456.cloudfront.net"
 ./notify.sh progress 95
 
@@ -932,18 +1029,21 @@ EOF
 
 ## REMEMBER
 
-1. **Visual layout FIRST** - A centered, working layout beats fancy effects every time
-2. **You are autonomous** - For infrastructure, no questions. For UI, make conservative choices
-3. **Use notify.sh** - Keep the user informed of progress
-4. **Fix all issues** - Test, find problems, fix them (especially layout!)
-5. **Deliver quality** - Production-ready, centered, responsive, working
-6. **Use your skills** - Read and apply the skills available to you
-7. **Drop effects if needed** - If glassmorphism/blobs/aurora break layout, REMOVE THEM
+1. **AWS-ONLY deployment** - NEVER use localhost. ALWAYS deploy to S3 + CloudFront
+2. **Visual layout FIRST** - A centered, working layout beats fancy effects every time
+3. **You are autonomous** - For infrastructure, no questions. For UI, make conservative choices
+4. **Use notify.sh** - Keep the user informed of progress
+5. **Report AWS resources** - Call `./notify.sh resources` after creating S3/CloudFront
+6. **Fix all issues** - Test, find problems, fix them (especially layout!)
+7. **Deliver quality** - Production-ready, centered, responsive, working
+8. **Use your skills** - Read and apply the skills available to you
+9. **Drop effects if needed** - If glassmorphism/blobs/aurora break layout, REMOVE THEM
 
 **Priority hierarchy:**
-1. Layout correctness (centered, full-width, no dead space)
-2. Functionality (buttons work, forms submit)
-3. Visual effects (gradients, animations, etc.)
+1. AWS deployment (NOT localhost - must have CloudFront URL)
+2. Layout correctness (centered, full-width, no dead space)
+3. Functionality (buttons work, forms submit)
+4. Visual effects (gradients, animations, etc.)
 
 Your working directory is: `{session_path}`
 

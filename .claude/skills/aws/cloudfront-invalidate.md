@@ -7,7 +7,7 @@ Invalidate CloudFront cache after deploying updates to ensure users receive the 
 ## Prerequisites
 
 - AWS CLI installed and configured
-- `sunwaretech` AWS profile configured with appropriate permissions
+- `cocreate` AWS profile configured with appropriate permissions
 - Existing CloudFront distribution ID
 
 ## Parameters
@@ -24,7 +24,7 @@ Invalidate CloudFront cache after deploying updates to ensure users receive the 
 Always set the AWS profile before running commands:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 ```
 
 ### Invalidate All Files
@@ -32,7 +32,7 @@ export AWS_PROFILE=sunwaretech
 Invalidate entire distribution cache:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws cloudfront create-invalidation \
   --distribution-id {distribution_id} \
   --paths "/*"
@@ -41,7 +41,7 @@ aws cloudfront create-invalidation \
 ### Invalidate Specific File
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws cloudfront create-invalidation \
   --distribution-id {distribution_id} \
   --paths "/index.html"
@@ -50,7 +50,7 @@ aws cloudfront create-invalidation \
 ### Invalidate Multiple Paths
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws cloudfront create-invalidation \
   --distribution-id {distribution_id} \
   --paths "/index.html" "/assets/main.css" "/assets/app.js"
@@ -59,7 +59,7 @@ aws cloudfront create-invalidation \
 ### Invalidate Directory
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws cloudfront create-invalidation \
   --distribution-id {distribution_id} \
   --paths "/assets/*"
@@ -86,7 +86,7 @@ For many paths, create a JSON file (`invalidation-batch.json`):
 Then run:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws cloudfront create-invalidation \
   --distribution-id {distribution_id} \
   --invalidation-batch file://invalidation-batch.json
@@ -97,7 +97,7 @@ aws cloudfront create-invalidation \
 ### Get Invalidation Status
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws cloudfront get-invalidation \
   --distribution-id {distribution_id} \
   --id {invalidation_id}
@@ -106,7 +106,7 @@ aws cloudfront get-invalidation \
 ### List Recent Invalidations
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws cloudfront list-invalidations \
   --distribution-id {distribution_id} \
   --query 'InvalidationList.Items[*].[Id,Status,CreateTime]' \
@@ -118,7 +118,7 @@ aws cloudfront list-invalidations \
 If you don't know the distribution ID:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 
 # List all distributions with details
 aws cloudfront list-distributions \
@@ -165,7 +165,7 @@ aws cloudfront list-distributions \
 ### Example Deployment Workflow
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 
 # 1. Upload new files to S3
 aws s3 sync ./dist/ s3://{bucket_name}/ --delete

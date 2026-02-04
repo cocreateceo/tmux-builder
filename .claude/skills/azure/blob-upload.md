@@ -7,7 +7,7 @@ Upload files to Azure Blob Storage containers for static website hosting, file s
 ## Prerequisites
 
 - Azure CLI installed and configured (`az login`)
-- `sunwaretech` Azure profile/subscription configured
+- `cocreate` Azure profile/subscription configured
 - Storage account created with blob containers
 - Appropriate RBAC permissions (Storage Blob Data Contributor)
 
@@ -27,7 +27,7 @@ Upload files to Azure Blob Storage containers for static website hosting, file s
 Always set the subscription before running commands:
 
 ```bash
-az account set --subscription "sunwaretech"
+az account set --subscription "cocreate"
 ```
 
 ### Create Storage Account (if needed)

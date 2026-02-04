@@ -16,7 +16,7 @@ Deploy static websites to Azure Blob Storage with static website hosting enabled
 
 ## Configuration
 
-- **Azure Profile**: sunwaretech
+- **Azure Profile**: cocreate
 - **Default Region**: eastus
 - **Service**: Blob Storage + Azure CDN
 

@@ -224,10 +224,12 @@ export function useProgressSocket(guid, handlers = {}) {
         wsRef.current = null;
 
         // Don't reconnect for certain close codes
-        // 1000: Normal close, 1008: Policy violation, 1011: Server error (e.g., invalid session)
-        const noReconnectCodes = [1000, 1008, 1011];
+        // 1000: Normal close (intentional disconnect)
+        // 1011: Server error indicating invalid/deleted session
+        // Note: 1008 (Policy Violation) could be transient, so we allow retry
+        const noReconnectCodes = [1000, 1011];
         if (noReconnectCodes.includes(event.code)) {
-          console.log(`[MCP-WS] Not reconnecting (code ${event.code} indicates permanent error)`);
+          console.log(`[MCP-WS] Not reconnecting (code ${event.code} indicates permanent close)`);
           return;
         }
 

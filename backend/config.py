@@ -38,6 +38,19 @@ PENDING_REQUESTS_DIR.mkdir(parents=True, exist_ok=True)
 # Default user ID (single user mode for now)
 DEFAULT_USER_ID = os.getenv('USER_ID', 'default_user')
 
+# ==============================================
+# AWS CONFIGURATION
+# ==============================================
+
+# Root AWS profile for IAM user management (has full IAM permissions)
+AWS_ROOT_PROFILE = os.getenv('AWS_ROOT_PROFILE', 'cocreate')
+
+# Default AWS region
+AWS_DEFAULT_REGION = os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
+
+# Enable per-user IAM isolation (set to False to use root profile directly)
+AWS_PER_USER_IAM_ENABLED = os.getenv('AWS_PER_USER_IAM_ENABLED', 'true').lower() == 'true'
+
 # Alias for chat UI compatibility
 DEFAULT_USER = DEFAULT_USER_ID
 

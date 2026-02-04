@@ -7,7 +7,7 @@ Create and configure Azure SQL Database instances for managed relational databas
 ## Prerequisites
 
 - Azure CLI installed and configured (`az login`)
-- `sunwaretech` Azure profile/subscription configured
+- `cocreate` Azure profile/subscription configured
 - Resource group created
 - Appropriate permissions to create SQL resources
 
@@ -30,7 +30,7 @@ Create and configure Azure SQL Database instances for managed relational databas
 Always set the subscription before running commands:
 
 ```bash
-az account set --subscription "sunwaretech"
+az account set --subscription "cocreate"
 ```
 
 ### Create SQL Server

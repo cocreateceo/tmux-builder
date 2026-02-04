@@ -7,7 +7,7 @@ Create a CloudFront distribution for serving S3-hosted static websites with glob
 ## Prerequisites
 
 - AWS CLI installed and configured
-- `sunwaretech` AWS profile configured with appropriate permissions
+- `cocreate` AWS profile configured with appropriate permissions
 - S3 bucket with static website content already uploaded
 - (Optional) ACM certificate for custom domain (must be in us-east-1)
 
@@ -27,7 +27,7 @@ Create a CloudFront distribution for serving S3-hosted static websites with glob
 Always set the AWS profile before running commands:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 ```
 
 ### Create Distribution with Full Config
@@ -98,7 +98,7 @@ Save this configuration to a file (e.g., `distribution-config.json`):
 Create the distribution:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws cloudfront create-distribution \
   --distribution-config file://distribution-config.json
 ```
@@ -108,7 +108,7 @@ aws cloudfront create-distribution \
 First, create an Origin Access Control:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws cloudfront create-origin-access-control \
   --origin-access-control-config '{
     "Name": "{bucket_name}-oac",
@@ -126,7 +126,7 @@ Note the `Id` from the response for use in the distribution config.
 After creation, retrieve the CloudFront domain:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 
 # List all distributions
 aws cloudfront list-distributions \
@@ -164,7 +164,7 @@ Add to your distribution config JSON:
 Then use:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws cloudfront create-distribution-with-tags \
   --distribution-config-with-tags file://distribution-config-with-tags.json
 ```
@@ -172,7 +172,7 @@ aws cloudfront create-distribution-with-tags \
 ### Tag Existing Distribution
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws cloudfront tag-resource \
   --resource "arn:aws:cloudfront::{account_id}:distribution/{distribution_id}" \
   --tags 'Items=[{Key=Project,Value=tmux-builder},{Key=Environment,Value=production},{Key=ManagedBy,Value=claude}]'
@@ -183,7 +183,7 @@ aws cloudfront tag-resource \
 Check deployment status (takes 5-15 minutes):
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws cloudfront get-distribution --id {distribution_id} \
   --query 'Distribution.Status' \
   --output text

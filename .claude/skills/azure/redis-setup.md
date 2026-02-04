@@ -7,7 +7,7 @@ Create and configure Azure Cache for Redis instances for in-memory caching to im
 ## Prerequisites
 
 - Azure CLI installed and configured (`az login`)
-- `sunwaretech` Azure profile/subscription configured
+- `cocreate` Azure profile/subscription configured
 - Resource group created
 - Appropriate permissions to create Redis resources
 
@@ -29,7 +29,7 @@ Create and configure Azure Cache for Redis instances for in-memory caching to im
 Always set the subscription before running commands:
 
 ```bash
-az account set --subscription "sunwaretech"
+az account set --subscription "cocreate"
 ```
 
 ### Create Basic Redis Cache

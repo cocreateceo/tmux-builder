@@ -7,7 +7,7 @@ Purge cached content from Azure CDN edge nodes to force refresh of updated conte
 ## Prerequisites
 
 - Azure CLI installed and configured (`az login`)
-- `sunwaretech` Azure profile/subscription configured
+- `cocreate` Azure profile/subscription configured
 - Existing CDN profile and endpoint
 - Appropriate permissions to manage CDN endpoints
 
@@ -27,7 +27,7 @@ Purge cached content from Azure CDN edge nodes to force refresh of updated conte
 Always set the subscription before running commands:
 
 ```bash
-az account set --subscription "sunwaretech"
+az account set --subscription "cocreate"
 ```
 
 ### Purge Single File

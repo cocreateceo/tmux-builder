@@ -7,7 +7,7 @@ Launch and configure Amazon EC2 instances for running applications, servers, or 
 ## Prerequisites
 
 - AWS CLI installed and configured
-- `sunwaretech` AWS profile configured with appropriate permissions
+- `cocreate` AWS profile configured with appropriate permissions
 - VPC with appropriate subnets
 - Security group configured for required traffic
 - SSH key pair created for instance access
@@ -32,14 +32,14 @@ Launch and configure Amazon EC2 instances for running applications, servers, or 
 Always set the AWS profile before running commands:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 export AWS_DEFAULT_REGION=us-east-1
 ```
 
 ### Find Latest Amazon Linux 2023 AMI
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws ec2 describe-images \
   --owners amazon \
   --filters "Name=name,Values=al2023-ami-2023*-x86_64" \
@@ -51,7 +51,7 @@ aws ec2 describe-images \
 ### Find Latest Ubuntu 22.04 AMI
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws ec2 describe-images \
   --owners 099720109477 \
   --filters "Name=name,Values=ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*" \
@@ -63,7 +63,7 @@ aws ec2 describe-images \
 ### Create Key Pair
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws ec2 create-key-pair \
   --key-name {key_name} \
   --query 'KeyMaterial' \
@@ -75,7 +75,7 @@ chmod 400 {key_name}.pem
 ### Launch Basic Instance
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws ec2 run-instances \
   --image-id {ami_id} \
   --instance-type {instance_type} \
@@ -90,7 +90,7 @@ aws ec2 run-instances \
 ### Launch with User Data (Bootstrap Script)
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 
 # Create user data script
 cat << 'EOF' > user-data.sh
@@ -117,7 +117,7 @@ aws ec2 run-instances \
 ### Launch with IAM Role
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws ec2 run-instances \
   --image-id {ami_id} \
   --instance-type {instance_type} \
@@ -133,7 +133,7 @@ aws ec2 run-instances \
 ### Launch with EBS Volume
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws ec2 run-instances \
   --image-id {ami_id} \
   --instance-type {instance_type} \
@@ -149,7 +149,7 @@ aws ec2 run-instances \
 ### Launch with Public IP
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws ec2 run-instances \
   --image-id {ami_id} \
   --instance-type {instance_type} \
@@ -167,21 +167,21 @@ aws ec2 run-instances \
 ### Stop Instance
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws ec2 stop-instances --instance-ids {instance_id}
 ```
 
 ### Start Instance
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws ec2 start-instances --instance-ids {instance_id}
 ```
 
 ### Terminate Instance
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws ec2 terminate-instances --instance-ids {instance_id}
 ```
 
@@ -190,7 +190,7 @@ aws ec2 terminate-instances --instance-ids {instance_id}
 Check instance status and get connection details:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 
 # Get instance state
 aws ec2 describe-instances \

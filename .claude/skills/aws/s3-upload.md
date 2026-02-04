@@ -7,7 +7,7 @@ Upload files to AWS S3 bucket for static website hosting or general storage.
 ## Prerequisites
 
 - AWS CLI installed and configured
-- `sunwaretech` AWS profile configured with appropriate permissions
+- `cocreate` AWS profile configured with appropriate permissions
 - S3 bucket must exist (create with `aws s3 mb` if needed)
 
 ## Parameters
@@ -24,13 +24,13 @@ Upload files to AWS S3 bucket for static website hosting or general storage.
 Always set the AWS profile before running commands:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 ```
 
 ### Upload Single File
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws s3 cp source/index.html s3://{bucket_name}/
 ```
 
@@ -39,7 +39,7 @@ aws s3 cp source/index.html s3://{bucket_name}/
 Sync a local directory to S3, removing files that no longer exist locally:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws s3 sync source/ s3://{bucket_name}/ --delete
 ```
 
@@ -48,7 +48,7 @@ aws s3 sync source/ s3://{bucket_name}/ --delete
 Specify content type for proper MIME handling:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws s3 cp index.html s3://{bucket_name}/ --content-type "text/html"
 ```
 
@@ -57,7 +57,7 @@ aws s3 cp index.html s3://{bucket_name}/ --content-type "text/html"
 Set cache headers for static assets:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws s3 sync ./assets/ s3://{bucket_name}/assets/ \
   --cache-control "max-age=31536000,public"
 ```
@@ -67,7 +67,7 @@ aws s3 sync ./assets/ s3://{bucket_name}/assets/ \
 Exclude certain files or patterns:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws s3 sync source/ s3://{bucket_name}/ \
   --delete \
   --exclude "*.md" \
@@ -81,7 +81,7 @@ Apply tags to S3 objects for cost tracking and organization:
 ### Tag Individual Object
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws s3api put-object-tagging \
   --bucket {bucket_name} \
   --key index.html \
@@ -91,7 +91,7 @@ aws s3api put-object-tagging \
 ### Tag Bucket
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws s3api put-bucket-tagging \
   --bucket {bucket_name} \
   --tagging 'TagSet=[{Key=Project,Value=tmux-builder},{Key=Environment,Value=production},{Key=ManagedBy,Value=claude}]'
@@ -102,7 +102,7 @@ aws s3api put-bucket-tagging \
 Check that files were uploaded successfully:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws s3 ls s3://{bucket_name}/ --recursive
 ```
 

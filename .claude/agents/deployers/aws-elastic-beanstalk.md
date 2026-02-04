@@ -17,7 +17,7 @@ Deploy Node.js, Python, and other dynamic applications to Elastic Beanstalk with
 
 ## Configuration
 
-- **AWS Profile**: sunwaretech
+- **AWS Profile**: cocreate
 - **Default Region**: us-east-1
 - **Service**: Elastic Beanstalk
 

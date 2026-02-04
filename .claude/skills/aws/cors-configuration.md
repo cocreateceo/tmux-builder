@@ -84,7 +84,7 @@ cat > cors-config.json << 'EOF'
 EOF
 
 # Apply to bucket
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws s3api put-bucket-cors \
     --bucket YOUR_BUCKET_NAME \
     --cors-configuration file://cors-config.json
@@ -106,7 +106,7 @@ CloudFront requires additional configuration to pass CORS headers from origin.
 ### Step 1: Create Response Headers Policy
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 
 # Create CORS response headers policy
 aws cloudfront create-response-headers-policy \
@@ -211,7 +211,7 @@ aws cloudfront update-distribution \
 For simple static sites, use managed policies:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 
 # List available managed policies
 aws cloudfront list-response-headers-policies \
@@ -308,7 +308,7 @@ When deploying static sites:
 BUCKET_NAME="${1:-my-bucket}"
 DISTRIBUTION_ID="${2:-EXXXXXXXXXXXXX}"
 
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 
 # 1. Configure S3 CORS
 echo "Configuring S3 CORS..."

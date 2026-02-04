@@ -7,7 +7,7 @@ Create and configure Amazon RDS database instances for relational database hosti
 ## Prerequisites
 
 - AWS CLI installed and configured
-- `sunwaretech` AWS profile configured with appropriate permissions
+- `cocreate` AWS profile configured with appropriate permissions
 - VPC with appropriate subnets for database placement
 - Security group allowing database traffic
 
@@ -33,14 +33,14 @@ Create and configure Amazon RDS database instances for relational database hosti
 Always set the AWS profile before running commands:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 export AWS_DEFAULT_REGION=us-east-1
 ```
 
 ### Create DB Subnet Group
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws rds create-db-subnet-group \
   --db-subnet-group-name {db_subnet_group} \
   --db-subnet-group-description "Subnet group for {db_identifier}" \
@@ -51,7 +51,7 @@ aws rds create-db-subnet-group \
 ### Create PostgreSQL Instance
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws rds create-db-instance \
   --db-instance-identifier {db_identifier} \
   --db-name {db_name} \
@@ -72,7 +72,7 @@ aws rds create-db-instance \
 ### Create MySQL Instance
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws rds create-db-instance \
   --db-instance-identifier {db_identifier} \
   --db-name {db_name} \
@@ -93,7 +93,7 @@ aws rds create-db-instance \
 ### Create with Multi-AZ for High Availability
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws rds create-db-instance \
   --db-instance-identifier {db_identifier} \
   --db-name {db_name} \
@@ -114,7 +114,7 @@ aws rds create-db-instance \
 ### Scale Instance Class
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws rds modify-db-instance \
   --db-instance-identifier {db_identifier} \
   --db-instance-class db.t3.medium \
@@ -124,7 +124,7 @@ aws rds modify-db-instance \
 ### Increase Storage
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws rds modify-db-instance \
   --db-instance-identifier {db_identifier} \
   --allocated-storage 50 \
@@ -136,7 +136,7 @@ aws rds modify-db-instance \
 Check database instance status and get connection endpoint:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 
 # Get instance status
 aws rds describe-db-instances \

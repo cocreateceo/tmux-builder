@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from background_worker import BackgroundWorker
 from config import ACTIVE_SESSIONS_DIR, DELETED_SESSIONS_DIR, PENDING_REQUESTS_DIR, API_HOST, API_PORT, DEFAULT_USER, SESSION_PREFIX, setup_logging
-from guid_generator import generate_guid
+from guid_generator import generate_guid, is_valid_guid
 from session_controller import SessionController
 from session_initializer import SessionInitializer
 from tmux_helper import TmuxHelper
@@ -29,6 +29,17 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler for startup and shutdown."""
+    # Initialize DynamoDB table if needed
+    try:
+        from dynamodb_client import get_dynamo_client
+        dynamo = get_dynamo_client()
+        if dynamo.ensure_table_exists():
+            logger.info("DynamoDB table ready")
+        else:
+            logger.warning("DynamoDB table initialization failed - resource tracking may not work")
+    except Exception as e:
+        logger.warning(f"DynamoDB initialization skipped: {e}")
+
     logger.info("Starting Progress WebSocket server on port 8082...")
     await start_progress_server(port=8082)
     logger.info("Progress WebSocket server started")
@@ -48,6 +59,10 @@ app.add_middleware(
         "http://localhost:5174",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
+        "https://d3tfeatcbws1ka.cloudfront.net",
+        "https://d3r4k77gnvpmzn.cloudfront.net",
+        "https://www.cocreateidea.com",
+        "https://cocreateidea.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -73,8 +88,29 @@ def get_or_create_session_controller(guid: str) -> Optional[SessionController]:
     return None
 
 
+def validate_guid_or_raise(guid: str) -> str:
+    """Validate GUID format and raise HTTPException if invalid.
+
+    This prevents path traversal attacks by ensuring GUID is a valid hex string.
+
+    Args:
+        guid: GUID string to validate
+
+    Returns:
+        The validated GUID
+
+    Raises:
+        HTTPException: If GUID format is invalid
+    """
+    if not is_valid_guid(guid):
+        logger.warning(f"Invalid GUID format rejected: {guid[:50]}...")
+        raise HTTPException(status_code=400, detail="Invalid GUID format")
+    return guid
+
+
 def read_session_status(guid: str) -> Dict:
     """Read current status from status.json."""
+    validate_guid_or_raise(guid)
     session_path = ACTIVE_SESSIONS_DIR / guid
     status_file = session_path / "status.json"
     status = {"state": "unknown", "progress": 0, "message": "Checking status..."}
@@ -361,6 +397,7 @@ async def register_user(request: RegistrationRequest):
 @app.get("/api/session/{guid}/status")
 async def get_session_status_endpoint(guid: str):
     """Get current status of session initialization/build."""
+    validate_guid_or_raise(guid)
     logger.info(f"=== STATUS CHECK: {guid[:12]}... ===")
 
     job_status = background_worker.get_job_status(guid)
@@ -620,6 +657,7 @@ async def delete_session(guid: str):
     Delete a session by moving it to the deleted folder.
     Also kills the tmux session if active.
     """
+    validate_guid_or_raise(guid)
     logger.info(f"=== ADMIN DELETE SESSION: {guid[:12]}... ===")
 
     source_path = ACTIVE_SESSIONS_DIR / guid
@@ -634,6 +672,19 @@ async def delete_session(guid: str):
             logger.info(f"Killed tmux session: {session_name}")
     except Exception as e:
         logger.warning(f"Could not kill tmux session: {e}")
+
+    # Delete AWS IAM user if per-user IAM was enabled
+    try:
+        from aws_user_manager import AWSUserManager
+        from config import AWS_PER_USER_IAM_ENABLED
+        if AWS_PER_USER_IAM_ENABLED:
+            aws_manager = AWSUserManager()
+            if aws_manager.delete_user(guid):
+                logger.info(f"Deleted AWS IAM user for session: {guid[:12]}...")
+    except ImportError:
+        logger.debug("AWS user manager not available - skipping IAM cleanup")
+    except Exception as e:
+        logger.warning(f"Could not delete AWS IAM user: {e}")
 
     # Remove from session_controllers cache if present
     if guid in session_controllers:
@@ -905,6 +956,110 @@ async def duplicate_client_project(guid: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================
+# AWS RESOURCES API ENDPOINTS
+# ==============================================
+
+@app.get("/api/projects/{guid}/resources")
+async def get_project_resources(guid: str):
+    """Get AWS resources for a project from DynamoDB."""
+    validate_guid_or_raise(guid)
+    logger.info(f"=== GET PROJECT RESOURCES: {guid[:12]}... ===")
+
+    try:
+        from dynamodb_client import get_dynamo_client
+
+        # First try to get from local status.json (faster)
+        session_path = ACTIVE_SESSIONS_DIR / guid
+        status_file = session_path / "status.json"
+
+        local_resources = None
+        user_id = None
+
+        if status_file.exists():
+            status = json.loads(status_file.read_text())
+            local_resources = status.get('aws_resources')
+            user_id = status.get('email') or status.get('client_name') or guid
+
+        # Also try DynamoDB for the full record
+        dynamo = get_dynamo_client()
+        db_record = None
+
+        if user_id:
+            db_record = dynamo.get_project_resources(user_id, guid)
+
+        if not db_record:
+            # Try to find by guid only (scan)
+            db_record = dynamo.get_all_resources_by_guid(guid)
+
+        # Merge local and DynamoDB resources
+        resources = {}
+        if db_record and db_record.get('awsResources'):
+            resources = db_record.get('awsResources')
+        if local_resources:
+            resources.update(local_resources)
+
+        return {
+            "success": True,
+            "guid": guid,
+            "resources": resources,
+            "project_name": db_record.get('projectName') if db_record else None,
+            "created_at": db_record.get('createdAt') if db_record else None,
+            "updated_at": db_record.get('updatedAt') if db_record else None
+        }
+
+    except ImportError:
+        # DynamoDB client not available, just return local resources
+        session_path = ACTIVE_SESSIONS_DIR / guid
+        status_file = session_path / "status.json"
+
+        if status_file.exists():
+            status = json.loads(status_file.read_text())
+            return {
+                "success": True,
+                "guid": guid,
+                "resources": status.get('aws_resources', {}),
+                "source": "local"
+            }
+
+        return {"success": False, "error": "No resources found", "resources": {}}
+
+    except Exception as e:
+        logger.error(f"Failed to get project resources: {e}")
+        return {"success": False, "error": str(e), "resources": {}}
+
+
+@app.get("/api/users/{user_id}/deployments")
+async def get_user_deployments(user_id: str):
+    """Get all deployments/projects for a user from DynamoDB."""
+    logger.info(f"=== GET USER DEPLOYMENTS: {user_id} ===")
+
+    try:
+        from dynamodb_client import get_dynamo_client
+
+        dynamo = get_dynamo_client()
+        projects = dynamo.get_user_projects(user_id)
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            "projects": projects,
+            "total": len(projects)
+        }
+
+    except ImportError:
+        logger.warning("DynamoDB client not available")
+        return {
+            "success": False,
+            "error": "DynamoDB not configured",
+            "projects": []
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get user deployments: {e}")
+        return {"success": False, "error": str(e), "projects": []}
 
 
 @app.get("/api/status")

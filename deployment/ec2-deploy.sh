@@ -17,10 +17,15 @@ set -e
 #------------------------------------------------------------------------------
 # Configuration
 #------------------------------------------------------------------------------
-EC2_HOST="ai-product-studio"  # SSH config host name
-EC2_IP="184.73.78.154"
+EC2_HOST="ai-product-studio"  # SSH config host name (fallback)
+EC2_IP="18.211.207.2"
+EC2_KEY="$HOME/tmux-builder-key.pem"  # SSH key path
+EC2_USER="ubuntu"
 REMOTE_PATH="/home/ubuntu/tmux-builder"
 LOCAL_PATH="$(cd "$(dirname "$0")/.." && pwd)"
+
+# CloudFront Distribution ID for cache invalidation
+CLOUDFRONT_DIST_ID="E2FOQ8U2IQP3GC"
 
 # Ports
 BACKEND_PORT=8080
@@ -47,7 +52,27 @@ log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 ssh_cmd() {
-    ssh "$EC2_HOST" "$@"
+    # Try SSH config first, fallback to direct key
+    if ssh -o BatchMode=yes -o ConnectTimeout=5 "$EC2_HOST" true 2>/dev/null; then
+        ssh "$EC2_HOST" "$@"
+    elif [ -f "$EC2_KEY" ]; then
+        ssh -i "$EC2_KEY" -o StrictHostKeyChecking=no "${EC2_USER}@${EC2_IP}" "$@"
+    else
+        log_error "Cannot connect to EC2. Set up SSH config or provide key at $EC2_KEY"
+        exit 1
+    fi
+}
+
+scp_cmd() {
+    # Try SSH config first, fallback to direct key
+    if ssh -o BatchMode=yes -o ConnectTimeout=5 "$EC2_HOST" true 2>/dev/null; then
+        scp "$@" "${EC2_HOST}:~/"
+    elif [ -f "$EC2_KEY" ]; then
+        scp -i "$EC2_KEY" -o StrictHostKeyChecking=no "$@" "${EC2_USER}@${EC2_IP}:~/"
+    else
+        log_error "Cannot connect to EC2. Set up SSH config or provide key at $EC2_KEY"
+        exit 1
+    fi
 }
 
 usage() {
@@ -56,6 +81,7 @@ Usage: $0 COMMAND
 
 Commands:
   deploy          Full deployment (upload, install deps, build, restart)
+  quick           Quick deployment (upload, build frontend, restart) - USE THIS FOR CODE CHANGES
   upload          Upload code to EC2 only
   install-deps    Install Python and Node.js dependencies
   build           Build frontend for production
@@ -69,7 +95,8 @@ Options:
   -h, --help      Show this help message
 
 Examples:
-  $0 deploy       # Full deployment
+  $0 quick        # Quick deployment (recommended for code changes)
+  $0 deploy       # Full deployment (first time or dependency changes)
   $0 restart      # Just restart services
   $0 logs         # View logs
 EOF
@@ -95,11 +122,29 @@ upload_code() {
 
     # Upload
     log_info "Uploading to EC2..."
-    scp /tmp/tmux-builder.tar.gz "${EC2_HOST}:~/"
+    scp_cmd /tmp/tmux-builder.tar.gz
+
+    # Backup sessions and venv before extract
+    log_info "Backing up sessions and dependencies..."
+    ssh_cmd "
+        mkdir -p ~/tmux-backup
+        [ -d $REMOTE_PATH/sessions ] && cp -r $REMOTE_PATH/sessions ~/tmux-backup/ || true
+        [ -d $REMOTE_PATH/backend/venv ] && cp -r $REMOTE_PATH/backend/venv ~/tmux-backup/ || true
+        [ -d $REMOTE_PATH/frontend/node_modules ] && mv $REMOTE_PATH/frontend/node_modules ~/tmux-backup/ || true
+    "
 
     # Extract
     log_info "Extracting on EC2..."
     ssh_cmd "mkdir -p $REMOTE_PATH && tar -xzf ~/tmux-builder.tar.gz -C $REMOTE_PATH"
+
+    # Restore sessions and dependencies
+    log_info "Restoring sessions and dependencies..."
+    ssh_cmd "
+        [ -d ~/tmux-backup/sessions ] && cp -r ~/tmux-backup/sessions $REMOTE_PATH/ || true
+        [ -d ~/tmux-backup/venv ] && cp -r ~/tmux-backup/venv $REMOTE_PATH/backend/ || true
+        [ -d ~/tmux-backup/node_modules ] && mv ~/tmux-backup/node_modules $REMOTE_PATH/frontend/ || true
+        rm -rf ~/tmux-backup
+    "
 
     # Cleanup
     rm /tmp/tmux-builder.tar.gz
@@ -289,13 +334,31 @@ show_logs() {
 invalidate_cache() {
     log_info "=== Invalidating CloudFront Cache ==="
 
-    aws --profile sunwaretech cloudfront create-invalidation \
-        --distribution-id E139A6WQVKJXU9 \
+    aws --profile cocreate cloudfront create-invalidation \
+        --distribution-id "$CLOUDFRONT_DIST_ID" \
         --paths "/*" \
         --query 'Invalidation.{Id:Id,Status:Status}' \
         --output table
 
     log_info "Cache invalidation initiated!"
+}
+
+quick_deploy() {
+    log_info "=== Starting Quick Deployment (skip deps) ==="
+    echo ""
+
+    upload_code
+    update_frontend_urls
+    build_frontend
+    restart_services
+    invalidate_cache
+
+    echo ""
+    log_info "=== Quick Deployment Complete ==="
+    echo ""
+    echo "Access URL: $CLOUDFRONT_URL"
+    echo ""
+    show_status
 }
 
 full_deploy() {
@@ -332,6 +395,9 @@ COMMAND="${1:-}"
 case $COMMAND in
     deploy)
         full_deploy
+        ;;
+    quick)
+        quick_deploy
         ;;
     upload)
         upload_code

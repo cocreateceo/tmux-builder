@@ -2,8 +2,27 @@
 
 import hashlib
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+# Valid GUID pattern: 64 hexadecimal characters
+GUID_PATTERN = re.compile(r'^[a-f0-9]{64}$')
+
+
+def is_valid_guid(guid: str) -> bool:
+    """
+    Validate GUID format to prevent path traversal attacks.
+
+    Args:
+        guid: String to validate
+
+    Returns:
+        True if valid 64-character hex string, False otherwise
+    """
+    if not guid or not isinstance(guid, str):
+        return False
+    return bool(GUID_PATTERN.match(guid))
 
 
 def generate_guid(email: str, phone: str) -> str:

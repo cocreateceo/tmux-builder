@@ -116,4 +116,4 @@ frontend/src/client/
 - Layout priority is: centered > complete > fancy effects
 - Don't try to simplify the prompt too much - Claude needs detailed instructions
 - Test website generation on EC2, not locally
-- AWS profile for deployment: `sunwaretech`
+- AWS profile for deployment: `cocreate`

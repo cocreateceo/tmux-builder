@@ -7,7 +7,7 @@ Deploy web applications to Azure App Service for managed hosting with automatic 
 ## Prerequisites
 
 - Azure CLI installed and configured (`az login`)
-- `sunwaretech` Azure profile/subscription configured
+- `cocreate` Azure profile/subscription configured
 - Application source code ready for deployment
 - App Service Plan created or ability to create one
 
@@ -30,7 +30,7 @@ Deploy web applications to Azure App Service for managed hosting with automatic 
 Always set the subscription before running commands:
 
 ```bash
-az account set --subscription "sunwaretech"
+az account set --subscription "cocreate"
 ```
 
 ### Create App Service Plan

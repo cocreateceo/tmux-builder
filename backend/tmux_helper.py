@@ -156,19 +156,27 @@ class TmuxHelper:
             logger.debug(f"Sending instruction to {session_name}: {instruction[:100]}...")
 
             # Send instruction literally
-            subprocess.run(
+            result = subprocess.run(
                 ["tmux", "send-keys", "-t", session_name, "-l", instruction],
-                stderr=subprocess.DEVNULL
+                capture_output=True,
+                text=True
             )
+            if result.returncode != 0:
+                logger.error(f"tmux send-keys failed: {result.stderr}")
+                return False
 
             # CRITICAL: Wait for tmux to process
             time.sleep(TMUX_SEND_COMMAND_DELAY)
 
             # Send Enter
-            subprocess.run(
+            result = subprocess.run(
                 ["tmux", "send-keys", "-t", session_name, "Enter"],
-                stderr=subprocess.DEVNULL
+                capture_output=True,
+                text=True
             )
+            if result.returncode != 0:
+                logger.error(f"tmux send Enter failed: {result.stderr}")
+                return False
 
             # CRITICAL: Wait for Claude to start processing
             time.sleep(TMUX_SEND_ENTER_DELAY)

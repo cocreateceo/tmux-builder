@@ -7,7 +7,7 @@ Deploy applications to AWS Elastic Beanstalk for managed hosting with automatic 
 ## Prerequisites
 
 - AWS CLI installed and configured
-- `sunwaretech` AWS profile configured with appropriate permissions
+- `cocreate` AWS profile configured with appropriate permissions
 - EB CLI installed (`pip install awsebcli`)
 - Application source code ready for deployment
 - (Optional) Elastic Beanstalk application already created
@@ -30,14 +30,14 @@ Deploy applications to AWS Elastic Beanstalk for managed hosting with automatic 
 Always set the AWS profile before running commands:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 export AWS_DEFAULT_REGION=us-east-1
 ```
 
 ### Initialize Elastic Beanstalk Application
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 cd {source_dir}
 eb init {app_name} --platform "{platform}" --region {region}
 ```
@@ -45,7 +45,7 @@ eb init {app_name} --platform "{platform}" --region {region}
 ### Create New Environment
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 eb create {env_name} \
   --instance-type {instance_type} \
   --single \
@@ -55,14 +55,14 @@ eb create {env_name} \
 ### Deploy to Existing Environment
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 eb deploy {env_name}
 ```
 
 ### Deploy with Version Label
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 eb deploy {env_name} --label "v1.0.0-$(date +%Y%m%d%H%M%S)"
 ```
 
@@ -71,7 +71,7 @@ eb deploy {env_name} --label "v1.0.0-$(date +%Y%m%d%H%M%S)"
 Create application version and deploy:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 
 # Create application source bundle
 cd {source_dir}
@@ -98,14 +98,14 @@ aws elasticbeanstalk update-environment \
 ### Set Environment Variables
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 eb setenv KEY1=value1 KEY2=value2 -e {env_name}
 ```
 
 ### Configure Auto Scaling
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 aws elasticbeanstalk update-environment \
   --environment-name {env_name} \
   --option-settings \
@@ -118,7 +118,7 @@ aws elasticbeanstalk update-environment \
 Check environment status and health:
 
 ```bash
-export AWS_PROFILE=sunwaretech
+export AWS_PROFILE=cocreate
 
 # Get environment status
 eb status {env_name}

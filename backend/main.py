@@ -1195,6 +1195,97 @@ async def get_history(guid: str = None):
         return HistoryResponse(messages=[])
 
 
+@app.get("/api/deployments")
+async def get_deployments(guid: str):
+    """
+    Get all deployed projects for a session by parsing chat history.
+    Returns project name, URL, and deployment timestamp.
+    """
+    import re
+
+    if not guid:
+        return {"success": False, "deployments": [], "error": "GUID required"}
+
+    validate_guid_or_raise(guid)
+
+    try:
+        session_path = ACTIVE_SESSIONS_DIR / guid
+        history_file = session_path / "chat_history.jsonl"
+
+        deployments = []
+
+        if not history_file.exists():
+            return {"success": True, "deployments": []}
+
+        # Parse chat history for deployment info
+        with open(history_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                # Only look at assistant messages
+                if msg.get('role') != 'assistant':
+                    continue
+
+                content = msg.get('content', '')
+                timestamp = msg.get('timestamp', '')
+
+                # Look for CloudFront URLs in the message
+                cloudfront_urls = re.findall(r'https://[a-z0-9]+\.cloudfront\.net', content, re.IGNORECASE)
+
+                if not cloudfront_urls:
+                    continue
+
+                # Try to extract project name from message
+                # Look for patterns like "## ProjectName" or "**ProjectName**" or "# ProjectName"
+                project_name = None
+
+                # Pattern 1: ## Title - text or ## Title Complete
+                title_match = re.search(r'^##\s+(.+?)(?:\s+-\s+|\s+Complete|\s*$)', content, re.MULTILINE)
+                if title_match:
+                    project_name = title_match.group(1).strip()
+
+                # Pattern 2: First line with emoji as title
+                if not project_name:
+                    first_line_match = re.search(r'^#+\s*(.+?)$', content, re.MULTILINE)
+                    if first_line_match:
+                        project_name = first_line_match.group(1).strip()
+                        # Remove common suffixes
+                        project_name = re.sub(r'\s*[-–]\s*(Complete|Done|Deployed|MVP).*$', '', project_name, flags=re.IGNORECASE)
+
+                # Fallback: use "Website" if no name found
+                if not project_name:
+                    project_name = "Website Project"
+
+                # Clean up project name (remove emojis at start)
+                project_name = re.sub(r'^[🚀✨🎉💫⭐️🔥💪🌟]+\s*', '', project_name)
+
+                # Add deployment entry (keep all, even same URL - shows build history)
+                url = cloudfront_urls[0]  # Use first URL found
+
+                deployments.append({
+                    "project_name": project_name,
+                    "url": url,
+                    "deployed_at": timestamp,
+                    "status": "deployed"
+                })
+
+        # Sort by timestamp (newest first)
+        deployments.sort(key=lambda x: x.get('deployed_at', ''), reverse=True)
+
+        return {"success": True, "deployments": deployments}
+
+    except Exception as e:
+        logger.error(f"Failed to get deployments: {e}")
+        return {"success": False, "deployments": [], "error": str(e)}
+
+
 @app.post("/api/clear")
 async def clear_session():
     """Clear the current session."""

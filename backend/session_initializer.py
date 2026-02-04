@@ -58,7 +58,8 @@ class SessionInitializer:
         guid: str,
         email: str = "",
         phone: str = "",
-        user_request: str = ""
+        user_request: str = "",
+        client_name: str = ""
     ) -> Dict[str, Any]:
         """
         Initialize Claude CLI session with notify.sh health check.
@@ -71,6 +72,7 @@ class SessionInitializer:
             email: User email (stored for later use)
             phone: User phone (stored for later use)
             user_request: User's build request (stored for later use)
+            client_name: Client's name (stored for display)
 
         Returns:
             Dictionary with success status and session info
@@ -139,18 +141,35 @@ class SessionInitializer:
                 logger.info("Ack received - Claude CLI is alive and ready")
 
             # Step 7: Initialize status.json with session metadata
+            # IMPORTANT: Preserve existing metadata if status.json already exists
+            # This prevents overwriting client data when re-initializing a session
             status_file_path = session_path / "status.json"
+            existing_status = {}
+            if status_file_path.exists():
+                try:
+                    existing_status = json.loads(status_file_path.read_text())
+                    logger.info(f"Preserving existing metadata from status.json")
+                except (json.JSONDecodeError, IOError):
+                    existing_status = {}
+
             initial_status = {
                 'state': 'ready',
                 'progress': 100,
                 'message': 'Session ready for chat',
                 'phase': 'ready',
+                # Preserve created_at if exists, otherwise set new
+                'created_at': existing_status.get('created_at') or datetime.utcnow().isoformat() + 'Z',
                 'updated_at': datetime.utcnow().isoformat() + 'Z',
                 'guid': guid,
-                'email': email,
-                'phone': phone,
-                'user_request': user_request,
-                'first_message_sent': False,  # Track if autonomous prompt has been sent
+                # Preserve critical user data - use new values only if provided AND not default
+                'email': email if email and email != 'default_user@demo.local' else existing_status.get('email', email),
+                'phone': phone if phone else existing_status.get('phone', ''),
+                'user_request': user_request if user_request else existing_status.get('user_request', ''),
+                'client_name': client_name if client_name else existing_status.get('client_name', ''),
+                # Preserve other fields
+                'first_message_sent': existing_status.get('first_message_sent', False),
+                'deployed_url': existing_status.get('deployed_url'),
+                'initial_request': existing_status.get('initial_request', ''),
             }
             status_file_path.write_text(json.dumps(initial_status, indent=2))
             logger.info(f"Status written to {status_file_path}")

@@ -14,6 +14,8 @@ function OnboardingForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
+  const [submitted, setSubmitted] = useState(false);
+  const [requestId, setRequestId] = useState(null);
 
   // Validation functions
   const validateName = (name) => {
@@ -91,7 +93,7 @@ function OnboardingForm() {
         initial_request: formData.initial_request.trim(),
       };
 
-      const response = await fetch('/api/admin/sessions', {
+      const response = await fetch('/api/requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(submitData),
@@ -105,11 +107,12 @@ function OnboardingForm() {
 
       const data = await response.json();
 
-      if (data.success && data.guid) {
-        // Redirect to client dashboard with the new guid
-        window.location.href = `/client?guid=${data.guid}`;
+      if (data.success) {
+        // Show success message - request is pending approval
+        setSubmitted(true);
+        setRequestId(data.request_id);
       } else {
-        setError(data.error || data.detail || 'Failed to create session');
+        setError(data.error || data.detail || 'Failed to submit request');
       }
     } catch (err) {
       setError(err.message || 'Network error');
@@ -147,6 +150,50 @@ function OnboardingForm() {
         {/* Main Content */}
         <main className="flex-1 flex items-center justify-center p-6">
           <div className="w-full max-w-md">
+            {submitted ? (
+              /* Success - Request Submitted */
+              <div className="text-center">
+                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-green-400 to-emerald-600
+                  flex items-center justify-center mx-auto mb-6">
+                  <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h1 className="text-3xl font-bold dark:text-white text-gray-900 mb-4">
+                  Request Submitted!
+                </h1>
+                <p className="dark:text-gray-400 text-gray-600 mb-6">
+                  Your project request has been submitted successfully and is pending approval.
+                  You will receive access once an administrator reviews and approves your request.
+                </p>
+                <div className="bg-white dark:bg-[#12121a] rounded-2xl p-6 shadow-xl
+                  dark:shadow-black/20 border dark:border-gray-800 border-gray-200 text-left">
+                  <div className="text-sm dark:text-gray-400 text-gray-500 mb-2">Request ID</div>
+                  <div className="font-mono text-xs dark:text-gray-300 text-gray-700 break-all mb-4">
+                    {requestId}
+                  </div>
+                  <div className="flex items-center gap-2 text-amber-500">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-sm font-medium">Pending Approval</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setSubmitted(false);
+                    setRequestId(null);
+                    setFormData({ name: '', email: '', phone: '', initial_request: '' });
+                  }}
+                  className="mt-6 text-indigo-500 hover:text-indigo-400 text-sm font-medium"
+                >
+                  Submit Another Request
+                </button>
+              </div>
+            ) : (
+              /* Form */
+              <>
             <div className="text-center mb-8">
               <h1 className="text-3xl font-bold dark:text-white text-gray-900 mb-2">
                 Start Your Project
@@ -300,20 +347,22 @@ function OnboardingForm() {
                   <>
                     <div className="w-5 h-5 border-2 border-white border-t-transparent
                       rounded-full animate-spin" />
-                    Creating your project...
+                    Submitting request...
                   </>
                 ) : (
                   <>
                     <Rocket className="w-5 h-5" />
-                    Start Building
+                    Submit Request
                   </>
                 )}
               </button>
             </form>
 
             <p className="text-center mt-6 text-sm dark:text-gray-500 text-gray-400">
-              Your project will be created and you'll be redirected to the dashboard
+              Your request will be reviewed and you'll receive access once approved
             </p>
+              </>
+            )}
           </div>
         </main>
       </div>

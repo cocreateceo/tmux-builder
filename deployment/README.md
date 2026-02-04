@@ -7,7 +7,7 @@ This folder contains scripts and documentation for deploying the Tmux Builder ap
 ```
                     ┌─────────────────────────────────────────────────────────────┐
                     │                     CloudFront                               │
-                    │              d3r4k77gnvpmzn.cloudfront.net                   │
+                    │              d3tfeatcbws1ka.cloudfront.net                   │
                     │                                                              │
                     │  ┌──────────┐  ┌──────────┐  ┌──────────────┐               │
                     │  │ /* (def) │  │ /api/*   │  │ /ws/* (note) │               │
@@ -16,8 +16,8 @@ This folder contains scripts and documentation for deploying the Tmux Builder ap
                             │             │
                             ▼             ▼
 ┌───────────────────────────────────────────────────────────────────────────────────┐
-│                           EC2 Instance (t3.xlarge)                                │
-│                           IP: 184.73.78.154                                       │
+│                           EC2 Instance (t3.medium)                                │
+│                           IP: 18.211.207.2                                        │
 │                                                                                   │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ │
 │  │  Frontend       │  │  Backend API    │  │  WebSocket      │  │  Nginx SSL   │ │
@@ -30,7 +30,7 @@ This folder contains scripts and documentation for deploying the Tmux Builder ap
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Note:** WebSocket now works through CloudFront (wss://d3r4k77gnvpmzn.cloudfront.net/ws/{guid}). The nginx SSL proxy on port 8443 is available as a fallback but not required.
+**Note:** WebSocket now works through CloudFront (wss://d3tfeatcbws1ka.cloudfront.net/ws/{guid}). The nginx SSL proxy on port 8443 is available as a fallback but not required.
 
 ## Quick Start
 
@@ -58,18 +58,33 @@ This folder contains scripts and documentation for deploying the Tmux Builder ap
 
 ## AWS Infrastructure
 
+### AWS Account
+
+| Property | Value |
+|----------|-------|
+| Account Name | CoCreate |
+| Account ID | 248825820556 |
+| AWS Profile | `cocreate` |
+| Region | us-east-1 |
+
 ### EC2 Instance
 
 | Property | Value |
 |----------|-------|
-| Instance ID | `i-07dd29bd83fa7a0a8` |
-| Name | ai-product-studio |
-| Type | t3.xlarge (4 vCPU, 16GB RAM) |
-| Storage | 100GB gp3 |
+| Instance ID | `i-02295df495905ba4b` |
+| Name | tmux-builder |
+| Type | t3.medium (2 vCPU, 4GB RAM) |
 | Region | us-east-1 |
-| Public IP | 184.73.78.154 (changes on stop/start) |
+| Public IP | 18.211.207.2 (changes on stop/start) |
 
-### Security Group Rules
+### Security Group
+
+| Property | Value |
+|----------|-------|
+| Group ID | `sg-0efa0764ef31b465b` |
+| Group Name | tmux-builder-sg |
+
+**Inbound Rules:**
 
 | Port | Protocol | Source | Purpose |
 |------|----------|--------|---------|
@@ -85,19 +100,17 @@ This folder contains scripts and documentation for deploying the Tmux Builder ap
 
 | Property | Value |
 |----------|-------|
-| Distribution ID | `E139A6WQVKJXU9` |
-| Domain | `d3r4k77gnvpmzn.cloudfront.net` |
-| Price Class | PriceClass_100 (US, Canada, Europe) |
+| Distribution ID | `E2FOQ8U2IQP3GC` |
+| Domain | `d3tfeatcbws1ka.cloudfront.net` |
+| Origin | `ec2-18-211-207-2.compute-1.amazonaws.com` |
 
 **Cache Behaviors:**
 
 | Path Pattern | Origin | Cache Policy | Notes |
 |--------------|--------|--------------|-------|
-| `/*` (default) | tmux-frontend:3001 | CachingOptimized | Static assets |
-| `/api/*` | tmux-backend:8080 | CachingDisabled | API requests |
-| `/ws/*` | tmux-websocket:8082 | CachingDisabled | WebSocket (unused*) |
-
-*WebSocket through CloudFront has HTTP/2 upgrade issues. Use nginx proxy instead.
+| `/*` (default) | tmux-builder-ec2-origin | CachingOptimized | Static assets |
+| `/api/*` | tmux-builder-ec2-origin | CachingDisabled | API requests |
+| `/ws/*` | tmux-builder-ec2-origin | CachingDisabled | WebSocket |
 
 ## Application Services
 
@@ -105,8 +118,21 @@ This folder contains scripts and documentation for deploying the Tmux Builder ap
 
 | Name | Script | Port | Description |
 |------|--------|------|-------------|
-| tmux-backend | `python main.py` | 8080, 8082 | FastAPI + WebSocket server |
+| tmux-backend | `python main.py` | 8080 | FastAPI REST API |
+| tmux-websocket | `python ws_server.py` | 8082 | WebSocket server |
 | tmux-frontend | `npx serve -s dist` | 3001 | Static file server |
+
+### ecosystem.config.js
+
+**Important:** The `BACKEND_PORT` environment variable must be set to `8080`:
+
+```javascript
+env: {
+  PYTHONPATH: '/home/ubuntu/tmux-builder/backend',
+  BACKEND_PORT: '8080',
+  ANTHROPIC_API_KEY: 'your-api-key'
+}
+```
 
 ### Nginx Configuration
 
@@ -135,54 +161,61 @@ server {
 
 | Purpose | URL |
 |---------|-----|
-| Frontend (CloudFront) | https://d3r4k77gnvpmzn.cloudfront.net |
-| Frontend (Direct) | http://184.73.78.154:3001 |
-| API | https://d3r4k77gnvpmzn.cloudfront.net/api/* |
-| WebSocket (CloudFront) | wss://d3r4k77gnvpmzn.cloudfront.net/ws/{guid} |
-| WebSocket (Direct/Fallback) | wss://184.73.78.154:8443/ws/{guid} |
+| Frontend (CloudFront) | https://d3tfeatcbws1ka.cloudfront.net |
+| Frontend (Direct) | http://18.211.207.2:3001 |
+| API | https://d3tfeatcbws1ka.cloudfront.net/api/* |
+| WebSocket (CloudFront) | wss://d3tfeatcbws1ka.cloudfront.net/ws/{guid} |
+| WebSocket (Direct/Fallback) | wss://18.211.207.2:8443/ws/{guid} |
 
 ## SSH Access
 
 ```bash
-# Using SSH config (recommended)
-ssh ai-product-studio
+# Using the PEM key
+ssh -i C:\Projects\ai-product-studio\tmux-builder-key.pem ubuntu@18.211.207.2
 
-# Direct SSH
-ssh -i ~/.ssh/ai-product-studio-key-us-east-1.pem ubuntu@184.73.78.154
+# Or using AWS SSM (no key needed)
+aws ssm start-session --target i-02295df495905ba4b --profile cocreate --region us-east-1
 ```
 
-**SSH Config (~/.ssh/config):**
-```
-Host ai-product-studio
-    HostName 184.73.78.154
-    User ubuntu
-    IdentityFile /Users/sunwa/.ssh/ai-product-studio-key-us-east-1.pem
-```
+**SSH Key Location:** `C:\Projects\ai-product-studio\tmux-builder-key.pem`
 
 ## Common Operations
 
 ### Restart Services
 ```bash
-ssh ai-product-studio "pm2 restart all"
+ssh -i C:\Projects\ai-product-studio\tmux-builder-key.pem ubuntu@18.211.207.2 "pm2 restart all"
 ```
 
 ### View Logs
 ```bash
-ssh ai-product-studio "pm2 logs"
+ssh -i C:\Projects\ai-product-studio\tmux-builder-key.pem ubuntu@18.211.207.2 "pm2 logs"
 ```
 
 ### Invalidate CloudFront Cache
 ```bash
-aws --profile sunwaretech cloudfront create-invalidation \
-    --distribution-id E139A6WQVKJXU9 --paths "/*"
+aws cloudfront create-invalidation --profile cocreate \
+    --distribution-id E2FOQ8U2IQP3GC --paths "/*"
 ```
 
 ### Check Service Status
 ```bash
-ssh ai-product-studio "pm2 list && ss -tlnp | grep -E '(8080|8082|3001|8443)'"
+ssh -i C:\Projects\ai-product-studio\tmux-builder-key.pem ubuntu@18.211.207.2 \
+    "pm2 list && ss -tlnp | grep -E '(8080|8082|3001|8443)'"
+```
+
+### Check Instance Status
+```bash
+aws ec2 describe-instances --instance-ids i-02295df495905ba4b \
+    --profile cocreate --region us-east-1 \
+    --query 'Reservations[].Instances[].[State.Name,PublicIpAddress]' --output table
 ```
 
 ## Troubleshooting
+
+### Backend Not Responding on Port 8080
+1. Check if `BACKEND_PORT=8080` is set in ecosystem.config.js
+2. Restart with: `pm2 delete tmux-backend && pm2 start ecosystem.config.js --only tmux-backend`
+3. Verify port is listening: `ss -tlnp | grep 8080`
 
 ### WebSocket Not Connecting
 1. Check nginx is running: `sudo systemctl status nginx`
@@ -191,29 +224,28 @@ ssh ai-product-studio "pm2 list && ss -tlnp | grep -E '(8080|8082|3001|8443)'"
 
 ### CloudFront Serving Old Content
 ```bash
-aws --profile sunwaretech cloudfront create-invalidation \
-    --distribution-id E139A6WQVKJXU9 --paths "/*"
+aws cloudfront create-invalidation --profile cocreate \
+    --distribution-id E2FOQ8U2IQP3GC --paths "/*"
 ```
 
 ### PM2 Services Not Starting
 ```bash
-ssh ai-product-studio "pm2 delete all && cd ~/tmux-builder && pm2 start ecosystem.config.js"
+ssh -i C:\Projects\ai-product-studio\tmux-builder-key.pem ubuntu@18.211.207.2 \
+    "pm2 delete all && cd ~/tmux-builder && pm2 start ecosystem.config.js"
 ```
 
 ### Instance IP Changed After Restart
-1. Get new IP: `./aws-setup.sh show-status`
-2. Update SSH config with new IP
-3. Update frontend WebSocket URLs and rebuild
-4. Invalidate CloudFront cache
+1. Get new IP: `aws ec2 describe-instances --instance-ids i-02295df495905ba4b --profile cocreate --region us-east-1 --query 'Reservations[].Instances[].PublicIpAddress' --output text`
+2. Update CloudFront origin with new EC2 DNS name
+3. Invalidate CloudFront cache
 
 ## Cost Estimate
 
 | Resource | Hourly | Monthly (730h) |
 |----------|--------|----------------|
-| t3.xlarge | $0.1664 | ~$121 |
-| 100GB gp3 | - | ~$8 |
+| t3.medium | $0.0416 | ~$30 |
 | CloudFront | - | ~$1-5 (usage based) |
-| **Total** | - | **~$130-135** |
+| **Total** | - | **~$31-35** |
 
 ## Maintenance Checklist
 

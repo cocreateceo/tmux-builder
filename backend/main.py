@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from background_worker import BackgroundWorker
-from config import ACTIVE_SESSIONS_DIR, DELETED_SESSIONS_DIR, API_HOST, API_PORT, DEFAULT_USER, SESSION_PREFIX, setup_logging
+from config import ACTIVE_SESSIONS_DIR, DELETED_SESSIONS_DIR, PENDING_REQUESTS_DIR, API_HOST, API_PORT, DEFAULT_USER, SESSION_PREFIX, setup_logging
 from guid_generator import generate_guid
 from session_controller import SessionController
 from session_initializer import SessionInitializer
@@ -165,12 +165,13 @@ def generate_unique_guid(seed_prefix: str) -> str:
 async def initialize_new_session(
     guid: str,
     email: str = "",
-    phone: str = "0000000000"
+    phone: str = "0000000000",
+    client_name: str = ""
 ) -> Dict:
     """Initialize a new session and return result with SessionController."""
     global session_controller
     initializer = SessionInitializer()
-    result = await initializer.initialize_session(guid=guid, email=email, phone=phone)
+    result = await initializer.initialize_session(guid=guid, email=email, phone=phone, client_name=client_name)
     if result.get('success'):
         controller = SessionController(guid=guid)
         session_controllers[guid] = controller
@@ -220,6 +221,79 @@ class ClientProjectCreate(BaseModel):
 class ClientProjectUpdate(BaseModel):
     name: Optional[str] = None
     archived: Optional[bool] = None
+
+
+class PendingRequest(BaseModel):
+    """Model for submitting a new pending request (from onboarding)."""
+    name: str
+    email: str
+    phone: Optional[str] = ""
+    initial_request: str
+
+
+class PendingRequestInfo(BaseModel):
+    """Model for pending request listing."""
+    request_id: str
+    name: str
+    email: str
+    phone: Optional[str] = ""
+    initial_request: str
+    status: str  # pending, approved, rejected
+    created_at: str
+    updated_at: Optional[str] = None
+
+
+# ==============================================
+# PENDING REQUESTS HELPER FUNCTIONS
+# ==============================================
+
+def get_pending_requests(status_filter: str = "all") -> List[Dict]:
+    """Get all pending requests, optionally filtered by status."""
+    requests = []
+    if not PENDING_REQUESTS_DIR.exists():
+        return requests
+
+    for request_file in PENDING_REQUESTS_DIR.glob("*.json"):
+        try:
+            data = json.loads(request_file.read_text())
+            if status_filter == "all" or data.get("status") == status_filter:
+                requests.append(data)
+        except (json.JSONDecodeError, IOError):
+            continue
+
+    # Sort by created_at descending
+    requests.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return requests
+
+
+def get_pending_request(request_id: str) -> Optional[Dict]:
+    """Get a specific pending request by ID."""
+    request_file = PENDING_REQUESTS_DIR / f"{request_id}.json"
+    if not request_file.exists():
+        return None
+    try:
+        return json.loads(request_file.read_text())
+    except (json.JSONDecodeError, IOError):
+        return None
+
+
+def save_pending_request(request_id: str, data: Dict) -> bool:
+    """Save a pending request to disk."""
+    request_file = PENDING_REQUESTS_DIR / f"{request_id}.json"
+    try:
+        request_file.write_text(json.dumps(data, indent=2))
+        return True
+    except IOError:
+        return False
+
+
+def delete_pending_request(request_id: str) -> bool:
+    """Delete a pending request file."""
+    request_file = PENDING_REQUESTS_DIR / f"{request_id}.json"
+    if request_file.exists():
+        request_file.unlink()
+        return True
+    return False
 
 
 # API Endpoints
@@ -879,9 +953,12 @@ async def chat(chat_message: ChatMessage):
             session_controllers[target_guid] = session_controller
         else:
             logger.info(f"Auto-creating new session: {session_name}")
+            # Read existing client info if session folder exists (preserves metadata)
+            existing_info = get_client_info_from_guid(target_guid)
             result = await initialize_new_session(
                 guid=target_guid,
-                email=f"{DEFAULT_USER}@demo.local"
+                email=existing_info.get('email', f"{DEFAULT_USER}@demo.local") if existing_info else f"{DEFAULT_USER}@demo.local",
+                client_name=existing_info.get('name', '') if existing_info else ''
             )
             if not result.get('success'):
                 raise HTTPException(status_code=500, detail="Failed to create session")
@@ -982,6 +1059,179 @@ async def clear_session():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================
+# PENDING REQUESTS API ENDPOINTS
+# ==============================================
+
+@app.post("/api/requests")
+async def submit_request(data: PendingRequest):
+    """
+    Submit a new pending request (from onboarding form).
+    Request is stored as pending until admin approves.
+    """
+    try:
+        logger.info(f"=== NEW PENDING REQUEST ===")
+        logger.info(f"Name: {data.name}, Email: {data.email}")
+
+        # Generate a unique request ID
+        request_id = generate_unique_guid(data.email)
+
+        # Create pending request data
+        request_data = {
+            "request_id": request_id,
+            "name": data.name,
+            "email": data.email,
+            "phone": data.phone or "",
+            "initial_request": data.initial_request,
+            "status": "pending",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": None
+        }
+
+        # Save to pending directory
+        if not save_pending_request(request_id, request_data):
+            raise HTTPException(status_code=500, detail="Failed to save request")
+
+        logger.info(f"Pending request saved: {request_id}")
+
+        return {
+            "success": True,
+            "request_id": request_id,
+            "status": "pending",
+            "message": "Your request has been submitted and is pending approval."
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to submit request: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/requests")
+async def list_pending_requests(status: str = "all"):
+    """List all pending requests for admin review."""
+    logger.info(f"=== ADMIN LIST REQUESTS (status: {status}) ===")
+    requests = get_pending_requests(status)
+    return {
+        "success": True,
+        "requests": requests,
+        "total": len(requests)
+    }
+
+
+@app.get("/api/admin/requests/{request_id}")
+async def get_request_details(request_id: str):
+    """Get details of a specific pending request."""
+    request_data = get_pending_request(request_id)
+    if not request_data:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return {
+        "success": True,
+        "request": request_data
+    }
+
+
+@app.post("/api/admin/requests/{request_id}/approve")
+async def approve_request(request_id: str):
+    """
+    Approve a pending request and create the actual session.
+    """
+    logger.info(f"=== APPROVE REQUEST: {request_id} ===")
+
+    request_data = get_pending_request(request_id)
+    if not request_data:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    if request_data.get("status") != "pending":
+        raise HTTPException(status_code=400, detail=f"Request is already {request_data.get('status')}")
+
+    try:
+        # Generate session GUID
+        new_guid = generate_unique_guid(request_data["email"])
+
+        # Initialize the session
+        result = await initialize_new_session(
+            guid=new_guid,
+            email=request_data["email"],
+            phone=request_data.get("phone", ""),
+            client_name=request_data["name"]
+        )
+
+        if not result.get('success'):
+            raise HTTPException(status_code=500, detail=result.get('error', 'Failed to initialize session'))
+
+        # Update session status.json with initial_request
+        session_path = ACTIVE_SESSIONS_DIR / new_guid
+        status_file = session_path / "status.json"
+        if status_file.exists():
+            status = json.loads(status_file.read_text())
+            status["initial_request"] = request_data.get("initial_request", "")
+            status["approved_from_request"] = request_id
+            status_file.write_text(json.dumps(status, indent=2))
+
+        # Update pending request status
+        request_data["status"] = "approved"
+        request_data["approved_guid"] = new_guid
+        request_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        save_pending_request(request_id, request_data)
+
+        logger.info(f"Request {request_id} approved, session created: {new_guid}")
+
+        return {
+            "success": True,
+            "guid": new_guid,
+            "link": f"/client?guid={new_guid}",
+            "message": "Request approved and session created"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to approve request: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/admin/requests/{request_id}/reject")
+async def reject_request(request_id: str, reason: str = ""):
+    """Reject a pending request."""
+    logger.info(f"=== REJECT REQUEST: {request_id} ===")
+
+    request_data = get_pending_request(request_id)
+    if not request_data:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    if request_data.get("status") != "pending":
+        raise HTTPException(status_code=400, detail=f"Request is already {request_data.get('status')}")
+
+    # Update status to rejected
+    request_data["status"] = "rejected"
+    request_data["rejection_reason"] = reason
+    request_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    save_pending_request(request_id, request_data)
+
+    logger.info(f"Request {request_id} rejected")
+
+    return {
+        "success": True,
+        "message": "Request rejected"
+    }
+
+
+@app.delete("/api/admin/requests/{request_id}")
+async def delete_request(request_id: str):
+    """Delete a pending request permanently."""
+    logger.info(f"=== DELETE REQUEST: {request_id} ===")
+
+    if not get_pending_request(request_id):
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    delete_pending_request(request_id)
+
+    return {
+        "success": True,
+        "message": "Request deleted"
+    }
 
 
 if __name__ == "__main__":

@@ -23,11 +23,13 @@ PROJECT_ROOT = BASE_DIR.parent
 SESSIONS_DIR = PROJECT_ROOT / "sessions"
 ACTIVE_SESSIONS_DIR = SESSIONS_DIR / "active"
 DELETED_SESSIONS_DIR = SESSIONS_DIR / "deleted"
+PENDING_REQUESTS_DIR = SESSIONS_DIR / "pending"
 
 # Ensure directories exist
 SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 ACTIVE_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 DELETED_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+PENDING_REQUESTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ==============================================
 # USER CONFIGURATION

@@ -103,6 +103,40 @@ export const apiService = {
     const response = await api.post(`/api/admin/sessions/${guid}/restore`);
     return response.data;
   },
+
+  // ========== PENDING REQUESTS API ==========
+
+  // List pending requests
+  listRequests: async (status = 'all') => {
+    const response = await api.get('/api/admin/requests', { params: { status } });
+    return response.data;
+  },
+
+  // Get request details
+  getRequestDetails: async (requestId) => {
+    const response = await api.get(`/api/admin/requests/${requestId}`);
+    return response.data;
+  },
+
+  // Approve a request
+  approveRequest: async (requestId) => {
+    const response = await api.post(`/api/admin/requests/${requestId}/approve`);
+    return response.data;
+  },
+
+  // Reject a request
+  rejectRequest: async (requestId, reason = '') => {
+    const response = await api.post(`/api/admin/requests/${requestId}/reject`, null, {
+      params: { reason }
+    });
+    return response.data;
+  },
+
+  // Delete a request
+  deleteRequest: async (requestId) => {
+    const response = await api.delete(`/api/admin/requests/${requestId}`);
+    return response.data;
+  },
 };
 
 export default apiService;

@@ -8,6 +8,14 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
   const [error, setError] = useState(null);
   const [openMenuGuid, setOpenMenuGuid] = useState(null);
 
+  // Tab state: 'sessions' or 'requests'
+  const [activeTab, setActiveTab] = useState('sessions');
+
+  // Pending Requests State
+  const [requests, setRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestFilter, setRequestFilter] = useState('pending');
+
   // New Session Form State
   const [showNewForm, setShowNewForm] = useState(false);
   const [newSessionData, setNewSessionData] = useState({
@@ -32,11 +40,58 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
     }
   };
 
+  // Fetch pending requests
+  const fetchRequests = async () => {
+    setRequestsLoading(true);
+    setError(null);
+    try {
+      const result = await apiService.listRequests(requestFilter);
+      setRequests(result.requests || []);
+    } catch (err) {
+      setError('Failed to load requests');
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
-      fetchSessions();
+      if (activeTab === 'sessions') {
+        fetchSessions();
+      } else {
+        fetchRequests();
+      }
     }
-  }, [isOpen, filter]);
+  }, [isOpen, filter, activeTab, requestFilter]);
+
+  // Approve request
+  const handleApproveRequest = async (requestId) => {
+    setError(null);
+    try {
+      const result = await apiService.approveRequest(requestId);
+      if (result.success && result.guid) {
+        fetchRequests();
+        fetchSessions();
+        // Switch to sessions tab and select the new session
+        setActiveTab('sessions');
+        onSelectSession(result.guid);
+      }
+    } catch (err) {
+      setError('Failed to approve request');
+    }
+  };
+
+  // Reject request
+  const handleRejectRequest = async (requestId) => {
+    if (!confirm('Reject this request?')) return;
+    setError(null);
+    try {
+      await apiService.rejectRequest(requestId);
+      fetchRequests();
+    } catch (err) {
+      setError('Failed to reject request');
+    }
+  };
 
   // Format date
   const formatDate = (dateStr) => {
@@ -160,10 +215,40 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
           isOpen ? 'w-72' : 'w-0'
         } overflow-hidden`}
       >
-        {/* Header */}
+        {/* Header with Tabs */}
         <div className="p-4 border-b border-gray-700">
-          <h2 className="font-bold text-lg">Sessions</h2>
-          <div className="flex items-center gap-2 mt-2">
+          {/* Tab Buttons */}
+          <div className="flex gap-1 mb-3">
+            <button
+              onClick={() => setActiveTab('sessions')}
+              className={`flex-1 py-2 px-3 rounded text-sm font-medium transition-colors ${
+                activeTab === 'sessions'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:text-white'
+              }`}
+            >
+              Sessions
+            </button>
+            <button
+              onClick={() => setActiveTab('requests')}
+              className={`flex-1 py-2 px-3 rounded text-sm font-medium transition-colors relative ${
+                activeTab === 'requests'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:text-white'
+              }`}
+            >
+              Requests
+              {requests.filter(r => r.status === 'pending').length > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-amber-500 text-white text-xs rounded-full flex items-center justify-center">
+                  {requests.filter(r => r.status === 'pending').length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Filter dropdown - different for each tab */}
+          {activeTab === 'sessions' ? (
+          <div className="flex items-center gap-2">
             <select
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
@@ -181,9 +266,30 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
               Refresh
             </button>
           </div>
+          ) : (
+          <div className="flex items-center gap-2">
+            <select
+              value={requestFilter}
+              onChange={(e) => setRequestFilter(e.target.value)}
+              className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-sm"
+            >
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="all">All</option>
+            </select>
+            <button
+              onClick={fetchRequests}
+              className="text-blue-400 hover:text-blue-300 text-sm"
+            >
+              Refresh
+            </button>
+          </div>
+          )}
         </div>
 
-        {/* New Session Button / Form */}
+        {/* New Session Button / Form - only show on sessions tab */}
+        {activeTab === 'sessions' && (
         <div className="p-3 border-b border-gray-700">
           {!showNewForm ? (
             <button
@@ -253,6 +359,7 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
             </form>
           )}
         </div>
+        )}
 
         {/* Error */}
         {error && (
@@ -262,8 +369,11 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
           </div>
         )}
 
-        {/* Session List */}
+        {/* Content based on active tab */}
         <div className="flex-1 overflow-y-auto">
+          {activeTab === 'sessions' ? (
+            /* Session List */
+            <>
           {loading ? (
             <div className="p-4 text-center text-gray-500">Loading...</div>
           ) : sessions.length === 0 ? (
@@ -359,6 +469,92 @@ function SessionSidebar({ isOpen, onToggle, currentGuid, onSelectSession, onCrea
                 </div>
               ))}
             </div>
+          )}
+            </>
+          ) : (
+            /* Requests List */
+            <>
+              {requestsLoading ? (
+                <div className="p-4 text-center text-gray-500">Loading...</div>
+              ) : requests.length === 0 ? (
+                <div className="p-4 text-center text-gray-500">No requests</div>
+              ) : (
+                <div className="divide-y divide-gray-700">
+                  {requests.map((request) => (
+                    <div
+                      key={request.request_id}
+                      className="p-3 hover:bg-gray-800"
+                    >
+                      {/* Request Header */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium text-sm text-gray-200 truncate">
+                          {request.name}
+                        </span>
+                        <span
+                          className={`text-xs px-1.5 py-0.5 rounded ${
+                            request.status === 'pending'
+                              ? 'bg-amber-900 text-amber-300'
+                              : request.status === 'approved'
+                              ? 'bg-green-900 text-green-300'
+                              : 'bg-red-900 text-red-300'
+                          }`}
+                        >
+                          {request.status}
+                        </span>
+                      </div>
+
+                      {/* Email */}
+                      <div className="text-xs text-gray-400 truncate mb-1">
+                        {request.email}
+                      </div>
+
+                      {/* Request preview */}
+                      {request.initial_request && (
+                        <div className="text-xs text-gray-500 truncate mb-2">
+                          {request.initial_request.substring(0, 60)}...
+                        </div>
+                      )}
+
+                      {/* Date */}
+                      <div className="text-xs text-gray-500 mb-2">
+                        {formatDate(request.created_at)}
+                      </div>
+
+                      {/* Action buttons - only for pending */}
+                      {request.status === 'pending' && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleApproveRequest(request.request_id)}
+                            className="flex-1 bg-green-600 hover:bg-green-700 text-white py-1.5 rounded text-xs font-medium"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleRejectRequest(request.request_id)}
+                            className="flex-1 bg-red-600 hover:bg-red-700 text-white py-1.5 rounded text-xs font-medium"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Link to session if approved */}
+                      {request.status === 'approved' && request.approved_guid && (
+                        <button
+                          onClick={() => {
+                            setActiveTab('sessions');
+                            onSelectSession(request.approved_guid);
+                          }}
+                          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-1.5 rounded text-xs font-medium"
+                        >
+                          View Session
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
 

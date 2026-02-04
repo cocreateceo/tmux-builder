@@ -186,15 +186,23 @@ sessions/active/<guid>/
 
 ## Deployment
 
-### AWS Infrastructure
+### AWS Infrastructure (CoCreate Account)
 
 See `deployment/README.md` for complete documentation.
 
 **Quick Reference:**
-- **CloudFront URL**: https://d3r4k77gnvpmzn.cloudfront.net
-- **EC2 IP**: 184.73.78.154 (may change on restart)
-- **SSH**: `ssh ai-product-studio`
-- **WebSocket**: wss://d3r4k77gnvpmzn.cloudfront.net/ws/{guid}
+- **AWS Account**: CoCreate (248825820556)
+- **AWS Profile**: `cocreate`
+- **CloudFront URL**: https://d3tfeatcbws1ka.cloudfront.net
+- **EC2 IP**: 18.211.207.2 (may change on restart)
+- **Instance ID**: `i-02295df495905ba4b`
+- **SSH Key**: `C:\Projects\ai-product-studio\tmux-builder-key.pem`
+- **WebSocket**: wss://d3tfeatcbws1ka.cloudfront.net/ws/{guid}
+
+**SSH Access:**
+```bash
+ssh -i C:\Projects\ai-product-studio\tmux-builder-key.pem ubuntu@18.211.207.2
+```
 
 **Deployment Scripts:**
 ```bash
@@ -208,7 +216,7 @@ See `deployment/README.md` for complete documentation.
 ./deployment/ec2-deploy.sh restart
 
 # Invalidate CloudFront cache
-./deployment/ec2-deploy.sh invalidate
+aws cloudfront create-invalidation --profile cocreate --distribution-id E2FOQ8U2IQP3GC --paths "/*"
 ```
 
 ### Production Ports

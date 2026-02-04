@@ -176,6 +176,12 @@ class ProgressWebSocketServer:
                 # Update chat_history with error message
                 error_msg = message.get('data', 'An error occurred')
                 self._append_to_chat_history(guid, f"Task completed with errors: {error_msg}")
+            elif msg_type == 'deployed':
+                # Save deployed URL to status.json
+                deployed_url = message.get('data', '')
+                if deployed_url:
+                    self._save_deployed_url(guid, deployed_url)
+                    logger.info(f"[{guid}] Deployed URL saved: {deployed_url}")
 
             # Broadcast to all subscribers of this GUID
             await self._broadcast(guid, message)
@@ -239,6 +245,30 @@ class ProgressWebSocketServer:
 
         except Exception as e:
             logger.warning(f"Failed to update chat history: {e}")
+
+    def _save_deployed_url(self, guid: str, deployed_url: str):
+        """Save deployed URL to status.json."""
+        try:
+            session_path = ACTIVE_SESSIONS_DIR / guid
+            status_file = session_path / "status.json"
+
+            if not status_file.exists():
+                logger.warning(f"[{guid}] status.json not found for deployed URL")
+                return
+
+            # Read current status
+            status = json.loads(status_file.read_text())
+
+            # Update with deployed URL
+            status['deployed_url'] = deployed_url
+            status['updated_at'] = datetime.now().isoformat() + 'Z'
+
+            # Write back
+            status_file.write_text(json.dumps(status, indent=2))
+            logger.info(f"[{guid}] Saved deployed_url to status.json: {deployed_url}")
+
+        except Exception as e:
+            logger.warning(f"Failed to save deployed URL: {e}")
 
     def _persist_to_file(self, guid: str, message: dict):
         """Append message to activity_log.jsonl file."""

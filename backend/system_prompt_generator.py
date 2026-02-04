@@ -360,7 +360,7 @@ The task is NOT complete until the site is live on AWS CloudFront.
 
 **Resource Naming Per Project (MUST include date+time for uniqueness):**
 ```
-S3 Bucket: tmux-{guid[:12]}-{project-slug}-{YYYYMMDD}-{HHmmss}
+S3 Bucket: tmux-{{guid[:12]}}-{{project-slug}}-{{YYYYMMDD}}-{{HHmmss}}
 Examples:
   - tmux-cba6eaf3633e-teashop-20260204-073700   (tea shop, Feb 4 07:37)
   - tmux-cba6eaf3633e-teashop-20260205-100000   (another tea shop, Feb 5 - DIFFERENT!)

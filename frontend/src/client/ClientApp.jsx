@@ -142,6 +142,32 @@ function ClientAppContent() {
     }
   }, [guid]);
 
+  // File upload handler
+  const handleFileUpload = useCallback(async (file) => {
+    if (!guid) return;
+
+    // Add user message indicating file upload
+    setMessages(prev => [...prev, {
+      role: 'user',
+      content: `📎 Uploaded file: ${file.name}`,
+      timestamp: new Date().toISOString()
+    }]);
+    setLoading(true);
+
+    try {
+      const response = await clientApi.uploadFile(guid, file);
+      if (response.success) {
+        toast.success('File uploaded! Building website...');
+        // The backend will trigger Claude to process the file
+        // Response will come through the normal message flow
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to upload file');
+      setLoading(false);
+    }
+    // Note: loading will be set to false when Claude responds via WebSocket
+  }, [guid]);
+
   // Project action handlers
   const handleSelectProject = useCallback((projectGuid) => {
     selectProject(projectGuid);
@@ -299,6 +325,7 @@ function ClientAppContent() {
           messages={messages}
           loading={loading}
           onSendMessage={handleSendMessage}
+          onFileUpload={handleFileUpload}
           onProjectAction={() => {}}
         />
 

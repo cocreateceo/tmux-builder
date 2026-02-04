@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Mic, Loader, MoreHorizontal } from 'lucide-react';
+import { Send, Paperclip, Mic, Loader, MoreHorizontal, FileText, Upload } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 
 export function ChatPanel({
@@ -7,12 +7,16 @@ export function ChatPanel({
   messages,
   loading,
   onSendMessage,
+  onFileUpload,
   onProjectAction
 }) {
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -46,6 +50,62 @@ export function ChatPanel({
     // Placeholder for voice input
     setIsRecording(!isRecording);
     // TODO: Implement Web Speech API
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = [
+      'text/plain',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'image/jpeg',
+      'image/png'
+    ];
+    const allowedExtensions = ['.txt', '.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+
+    if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(ext)) {
+      alert('Please upload a .txt, .pdf, .doc, .docx, .jpg, or .png file');
+      return;
+    }
+
+    // Max 10MB
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File size must be less than 10MB');
+      return;
+    }
+
+    setSelectedFile(file);
+  };
+
+  const handleFileUpload = async () => {
+    if (!selectedFile || uploadingFile || !onFileUpload) return;
+
+    setUploadingFile(true);
+    try {
+      await onFileUpload(selectedFile);
+      setSelectedFile(null);
+      // Clear file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (error) {
+      console.error('File upload failed:', error);
+      alert('Failed to upload file. Please try again.');
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const clearSelectedFile = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -117,18 +177,47 @@ export function ChatPanel({
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Selected file preview */}
+      {selectedFile && (
+        <div className="px-4 py-2 border-t" style={{ borderColor: 'var(--border-color)', background: 'var(--bg-secondary)' }}>
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4" style={{ color: 'var(--primary)' }} />
+            <span className="text-sm flex-1 truncate" style={{ color: 'var(--text-primary)' }}>
+              {selectedFile.name}
+            </span>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {(selectedFile.size / 1024).toFixed(1)} KB
+            </span>
+            <button
+              onClick={clearSelectedFile}
+              className="text-xs px-2 py-1 rounded hover:opacity-80"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              ✕
+            </button>
+            <button
+              onClick={handleFileUpload}
+              disabled={uploadingFile}
+              className="text-xs px-3 py-1 rounded-lg text-white disabled:opacity-50"
+              style={{ background: 'var(--primary)' }}
+            >
+              {uploadingFile ? 'Uploading...' : 'Upload & Build'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Input area */}
       <div className="p-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
         <form onSubmit={handleSubmit} className="flex items-end gap-2">
-          {/* Attachment button */}
-          <button
-            type="button"
-            className="p-2 rounded-lg hover:opacity-80"
-            style={{ color: 'var(--text-muted)' }}
-            title="Attach file"
-          >
-            <Paperclip className="w-5 h-5" />
-          </button>
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,.pdf,.doc,.docx,.jpg,.jpeg,.png"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
 
           {/* Text input */}
           <div className="flex-1 relative">
@@ -139,7 +228,7 @@ export function ChatPanel({
               onKeyDown={handleKeyDown}
               placeholder="Type your message..."
               rows={1}
-              disabled={loading}
+              disabled={loading || uploadingFile}
               className="w-full px-4 py-3 text-sm rounded-xl border resize-none focus:outline-none disabled:opacity-50"
               style={{
                 background: 'var(--bg-secondary)',
@@ -163,10 +252,21 @@ export function ChatPanel({
             <Mic className="w-5 h-5" />
           </button>
 
+          {/* Attachment button (moved to right) */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2 rounded-lg hover:opacity-80"
+            style={{ color: 'var(--text-muted)' }}
+            title="Upload document (.txt, .pdf, .doc, .docx, .jpg, .png)"
+          >
+            <Paperclip className="w-5 h-5" />
+          </button>
+
           {/* Send button */}
           <button
             type="submit"
-            disabled={!input.trim() || loading}
+            disabled={!input.trim() || loading || uploadingFile}
             className="p-3 rounded-xl text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:opacity-90"
             style={{ background: 'var(--primary)' }}
           >

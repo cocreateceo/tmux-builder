@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -1083,6 +1083,102 @@ async def get_status():
         session_active=is_active,
         message="Session ready" if is_active else "Session inactive"
     )
+
+
+@app.post("/api/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    guid: str = Form(...)
+):
+    """Upload a file and trigger Claude to build a website from it."""
+    global session_controller
+
+    logger.info(f"=== UPLOAD: {file.filename} (GUID: {guid}) ===")
+
+    # Validate GUID
+    validate_guid_or_raise(guid)
+
+    # Validate file type
+    allowed_extensions = {'.txt', '.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'}
+    file_ext = '.' + file.filename.split('.')[-1].lower() if '.' in file.filename else ''
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type. Allowed: {', '.join(allowed_extensions)}"
+        )
+
+    # Check file size (max 10MB)
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size must be less than 10MB")
+
+    # Save file to session folder
+    session_path = ACTIVE_SESSIONS_DIR / guid
+    if not session_path.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    uploads_dir = session_path / "uploads"
+    uploads_dir.mkdir(exist_ok=True)
+
+    # Save with timestamp to avoid conflicts
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    safe_filename = f"{timestamp}_{file.filename}"
+    file_path = uploads_dir / safe_filename
+
+    with open(file_path, 'wb') as f:
+        f.write(contents)
+
+    logger.info(f"File saved to: {file_path}")
+
+    # Determine file type for Claude instruction
+    if file_ext in {'.jpg', '.jpeg', '.png'}:
+        file_type = "image"
+        instruction = f"I've uploaded an image file at {file_path}. Please analyze this image and create a website based on what you see. If it's a design mockup, implement it. If it's a logo or product image, create an appropriate website around it."
+    elif file_ext == '.pdf':
+        file_type = "pdf"
+        instruction = f"I've uploaded a PDF file at {file_path}. Please read and analyze this document, then create a website based on its contents. Extract the key information and build an appropriate website."
+    elif file_ext in {'.doc', '.docx'}:
+        file_type = "document"
+        instruction = f"I've uploaded a Word document at {file_path}. Please read and analyze this document, then create a website based on its contents."
+    else:  # .txt
+        file_type = "text"
+        instruction = f"I've uploaded a text file at {file_path}. Please read this file and create a website based on its contents."
+
+    # Re-attach or create session if needed
+    target_guid = guid
+    needs_switch = session_controller is None or session_controller.guid != target_guid
+    if needs_switch:
+        session_name = f"{SESSION_PREFIX}_{target_guid}"
+        if TmuxHelper.session_exists(session_name):
+            logger.info(f"Re-attaching to existing session: {session_name}")
+            session_controller = SessionController(guid=target_guid)
+            session_controllers[target_guid] = session_controller
+        else:
+            logger.info(f"Auto-creating new session: {session_name}")
+            existing_info = get_client_info_from_guid(target_guid)
+            result = await initialize_new_session(
+                guid=target_guid,
+                email=existing_info.get('email', f"{DEFAULT_USER}@demo.local") if existing_info else f"{DEFAULT_USER}@demo.local",
+                client_name=existing_info.get('name', '') if existing_info else ''
+            )
+            if not result.get('success'):
+                raise HTTPException(status_code=500, detail="Failed to create session")
+
+    if not session_controller.is_active():
+        raise HTTPException(status_code=400, detail="Session is not active")
+
+    # Send instruction to Claude
+    response = await session_controller.send_message_async(instruction)
+
+    return {
+        "success": True,
+        "filename": safe_filename,
+        "file_type": file_type,
+        "file_path": str(file_path),
+        "message": f"File uploaded. Claude is now building a website from your {file_type}.",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "guid": guid
+    }
 
 
 @app.post("/api/chat")

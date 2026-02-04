@@ -57,6 +57,20 @@ export const clientApi = {
     const response = await api.post('/api/chat', { guid, message });
     return response.data;
   },
+
+  // Upload a file and trigger build
+  async uploadFile(guid, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('guid', guid);
+
+    const response = await api.post('/api/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
 };
 
 export default clientApi;

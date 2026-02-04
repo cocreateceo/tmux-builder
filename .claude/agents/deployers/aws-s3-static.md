@@ -21,6 +21,27 @@ Deploy static websites to AWS S3 buckets and configure CloudFront CDN for global
 
 ---
 
+## ⚠️ CRITICAL: New Project vs Update
+
+**BEFORE deploying, determine if this is a NEW project or an UPDATE:**
+
+### New Project (Create NEW Resources)
+User says: "create a website", "build a new site", "make a shop", etc.
+- ✅ Create NEW S3 bucket with UNIQUE name
+- ✅ Create NEW CloudFront distribution
+- ✅ Save to NEW project-specific config
+- Bucket naming: `tmux-{guid[:12]}-{project-slug}` (e.g., `tmux-abc123-teashop`, `tmux-abc123-bakery`)
+
+### Update Existing (Reuse Resources)
+User says: "fix the site", "update the colors", "change the text on the tea shop", etc.
+- ✅ Read EXISTING config for that specific project
+- ✅ Upload to SAME bucket
+- ✅ Invalidate CloudFront cache
+
+**⚠️ WARNING: Uploading a NEW project to an EXISTING bucket DESTROYS the previous project!**
+
+---
+
 ## Deployment Process
 
 ### Initial Deploy
@@ -88,13 +109,22 @@ When updating an existing deployment:
 
 Use consistent naming pattern for all AWS resources:
 
-**Pattern**: `tmux-{guid_prefix}-{session_short}`
+**Pattern**: `tmux-{guid_prefix}-{project_slug}-{YYYYMMDD}-{HHmmss}`
 
 **Components**:
-- `guid_prefix`: First 8 characters of user GUID
-- `session_short`: Session timestamp (YYYYMMDDHHmmss format)
+- `guid_prefix`: First 12 characters of user GUID
+- `project_slug`: Short descriptive name (lowercase, no spaces, e.g., teashop, bakery)
+- `YYYYMMDD-HHmmss`: Current date and time when creating the resource
 
-**Example**: `tmux-a1b2c3d4-20260124143022`
+**Examples**:
+- `tmux-cba6eaf3633e-teashop-20260204-073700` (tea shop created Feb 4, 07:37)
+- `tmux-cba6eaf3633e-teashop-20260205-073700` (another tea shop, Feb 5 - DIFFERENT bucket)
+- `tmux-cba6eaf3633e-shipshop-20260204-084700` (ship shop)
+
+**WHY date+time is required**:
+- Same project name + same time + different day = would overwrite without date
+- Same project name + same day + different time = would overwrite without time
+- Date+time guarantees EVERY project gets a unique bucket
 
 ---
 

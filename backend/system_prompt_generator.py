@@ -42,12 +42,14 @@ export AWS_DEFAULT_REGION={aws_credentials.get('region', AWS_DEFAULT_REGION)}
 ```
 
 **IMPORTANT:** Your AWS credentials are scoped to resources prefixed with your GUID.
-- S3 buckets MUST be named: `tmux-{aws_credentials['guid'][:12]}-<project-name>`
+- S3 buckets MUST be named: `tmux-{aws_credentials['guid'][:12]}-<project-slug>-<YYYYMMDD>-<HHmmss>`
 - All resources will be tagged with `guid={aws_credentials['guid'][:12]}`
 
-### Resource Naming Convention
-- S3 Bucket: `tmux-{aws_credentials['guid'][:12]}-<descriptive-name>`
-- CloudFront: Tag with `guid={aws_credentials['guid'][:12]}` and `created-by=tmux-builder`'''
+### Resource Naming Convention (MUST include date+time!)
+- S3 Bucket: `tmux-{aws_credentials['guid'][:12]}-<project-slug>-<YYYYMMDD>-<HHmmss>`
+- Example: `tmux-{aws_credentials['guid'][:12]}-teashop-20260204-073700`
+- CloudFront: Tag with `guid={aws_credentials['guid'][:12]}` and `created-by=tmux-builder`
+- **Each new project = new bucket with current date+time = never overwrites previous projects**'''
     else:
         # Fall back to root profile
         return f'''## AWS CONFIGURATION
@@ -346,6 +348,37 @@ You have access to skills and agents at these absolute paths:
 **Local development is ONLY for building/testing before AWS deployment.**
 
 The task is NOT complete until the site is live on AWS CloudFront.
+
+### ⚠️ CRITICAL: UNIQUE AWS RESOURCES PER PROJECT (MANDATORY)
+
+**Every NEW website/project request MUST create NEW AWS resources!**
+
+- ✅ ALWAYS create a NEW S3 bucket with a UNIQUE name for each project
+- ✅ ALWAYS create a NEW CloudFront distribution for each project
+- ❌ NEVER reuse an existing S3 bucket from a previous project
+- ❌ NEVER upload new project files to an existing bucket (overwrites previous work!)
+
+**Resource Naming Per Project (MUST include date+time for uniqueness):**
+```
+S3 Bucket: tmux-{guid[:12]}-{project-slug}-{YYYYMMDD}-{HHmmss}
+Examples:
+  - tmux-cba6eaf3633e-teashop-20260204-073700   (tea shop, Feb 4 07:37)
+  - tmux-cba6eaf3633e-teashop-20260205-100000   (another tea shop, Feb 5 - DIFFERENT!)
+  - tmux-cba6eaf3633e-shipshop-20260204-084700  (ship shop)
+  - tmux-cba6eaf3633e-bakery-20260204-120000    (bakery)
+```
+**WHY date+time**: Same project name requested twice = same bucket without timestamp = OVERWRITE!
+
+**How to determine if this is a NEW project:**
+- User asks for a "new website", "create a site", "build an app" = NEW PROJECT = NEW BUCKET
+- User asks to "fix", "update", "change" an EXISTING deployed site = SAME BUCKET
+
+**Before deploying, CHECK:**
+1. Is this a new project or updating an existing one?
+2. If NEW: Create new S3 bucket with unique name (include project type in name)
+3. If UPDATE: Use existing bucket from `deployment/config.json`
+
+**FAILURE TO CREATE UNIQUE RESOURCES = DESTROYING PREVIOUS USER WORK!**
 
 ### End Result Must Include
 

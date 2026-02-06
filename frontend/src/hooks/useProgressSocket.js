@@ -19,6 +19,86 @@ const LOGGABLE_TYPES = new Set([
   'created', 'deployed', 'screenshot', 'test', 'summary', 'done', 'complete', 'error'
 ]);
 
+/**
+ * Format activity message for user-friendly display.
+ * Filters out technical AWS details and converts to readable messages.
+ */
+function formatActivityMessage(msg) {
+  const { type, message } = msg;
+
+  // Skip if message contains raw AWS JSON data
+  if (message && typeof message === 'string') {
+    // Check if it's JSON with AWS details - skip these
+    if (message.includes('"s3_bucket"') ||
+        message.includes('"cloudfront_id"') ||
+        message.includes('"cloudfront_url"') ||
+        message.includes('"region"')) {
+      return null; // Filter out
+    }
+
+    // Check if it starts with { and contains AWS-like patterns
+    if (message.trim().startsWith('{') &&
+        (message.includes('tmux-') || message.includes('cloudfront.net'))) {
+      return null; // Filter out raw JSON
+    }
+  }
+
+  // Format progress messages
+  if (type === 'progress') {
+    const value = parseInt(message, 10);
+    if (!isNaN(value)) {
+      return { ...msg, message: `${value}%` };
+    }
+  }
+
+  // User-friendly message mappings
+  const friendlyMessages = {
+    'ack': 'Session acknowledged',
+    'done': 'Task completed',
+    'complete': 'Task completed',
+    'summary': 'Generating summary...',
+  };
+
+  if (friendlyMessages[type] && (!message || message === type)) {
+    return { ...msg, message: friendlyMessages[type] };
+  }
+
+  // Format specific patterns in messages
+  if (message && typeof message === 'string') {
+    let formatted = message;
+
+    // Convert technical terms to friendly ones
+    const replacements = [
+      [/creating s3 bucket/i, 'Creating storage bucket...'],
+      [/s3 bucket created/i, 'Storage bucket ready'],
+      [/creating cloudfront/i, 'Setting up CDN...'],
+      [/cloudfront.*created/i, 'CDN configured'],
+      [/cloudfront.*ready/i, 'CDN ready'],
+      [/uploading.*s3/i, 'Uploading files...'],
+      [/files uploaded/i, 'Files uploaded'],
+      [/configuring cors/i, 'Configuring access settings...'],
+      [/cors configured/i, 'Access settings configured'],
+      [/npm install/i, 'Installing dependencies...'],
+      [/npm run build/i, 'Building project...'],
+      [/vite build/i, 'Compiling code...'],
+      [/health check/i, 'Verifying deployment...'],
+      [/website.*live/i, 'Website is live!'],
+      [/deployment.*complete/i, 'Deployment complete!'],
+    ];
+
+    for (const [pattern, replacement] of replacements) {
+      if (pattern.test(formatted)) {
+        formatted = replacement;
+        break;
+      }
+    }
+
+    return { ...msg, message: formatted };
+  }
+
+  return msg;
+}
+
 function isValidGuid(guid) {
   return guid && guid !== 'null' && guid !== 'undefined';
 }
@@ -59,13 +139,21 @@ export function useProgressSocket(guid, handlers = {}) {
   }
 
   const addToActivityLog = useCallback((msg) => {
+    // Format message for user-friendly display
+    const formattedMsg = formatActivityMessage(msg);
+
+    // Skip if message was filtered out (e.g., raw AWS JSON)
+    if (!formattedMsg) {
+      return;
+    }
+
     setActivityLog((prev) => {
       idCounterRef.current += 1;
       const entry = {
         id: `${Date.now()}-${idCounterRef.current}-${Math.random().toString(36).slice(2, 9)}`,
-        type: msg.type,
-        message: msg.message,
-        timestamp: msg.timestamp,
+        type: formattedMsg.type,
+        message: formattedMsg.message,
+        timestamp: formattedMsg.timestamp,
       };
       return [...prev, entry].slice(-MAX_LOG_ENTRIES);
     });

@@ -260,7 +260,7 @@ class ProgressWebSocketServer:
             logger.warning(f"Failed to update chat history: {e}")
 
     def _save_deployed_url(self, guid: str, deployed_url: str):
-        """Save deployed URL to status.json."""
+        """Save deployed URL to status.json and DynamoDB."""
         try:
             session_path = ACTIVE_SESSIONS_DIR / guid
             status_file = session_path / "status.json"
@@ -279,6 +279,25 @@ class ProgressWebSocketServer:
             # Write back
             status_file.write_text(json.dumps(status, indent=2))
             logger.info(f"[{guid}] Saved deployed_url to status.json: {deployed_url}")
+
+            # Also save deployed_url to DynamoDB
+            try:
+                from dynamodb_client import get_dynamo_client
+                email = status.get('email', '')
+                user_id = email if email else status.get('client_name', guid)
+                project_name = status.get('initial_request', '')[:100] or status.get('user_request', '')[:100] or "Project"
+
+                dynamo = get_dynamo_client()
+                dynamo.save_project_resources(
+                    user_id=user_id,
+                    project_id=guid,
+                    project_name=project_name,
+                    aws_resources={'deployed_url': deployed_url},
+                    email=email
+                )
+                logger.info(f"[{guid}] Saved deployed_url to DynamoDB: {deployed_url}")
+            except Exception as dynamo_error:
+                logger.warning(f"[{guid}] Could not save deployed_url to DynamoDB: {dynamo_error}")
 
         except Exception as e:
             logger.warning(f"Failed to save deployed URL: {e}")

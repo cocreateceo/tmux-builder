@@ -251,8 +251,7 @@ restart_services() {
 }
 
 setup_nginx() {
-    log_info "=== Setting up Nginx SSL Proxy (Fallback) ==="
-    log_info "Note: CloudFront handles WebSocket in production. Nginx is a fallback option."
+    log_info "=== Setting up Nginx Reverse Proxy ==="
 
     ssh_cmd "
         # Install nginx if needed
@@ -267,7 +266,41 @@ setup_nginx() {
                 -subj '/CN=tmux-builder/O=tmux-builder'
         fi
 
-        # Create nginx config
+        # Create main tmux-builder nginx config (HTTP)
+        sudo tee /etc/nginx/sites-available/tmux-builder << 'NGINX'
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        proxy_pass http://127.0.0.1:$FRONTEND_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:$BACKEND_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+
+    location /ws/ {
+        proxy_pass http://127.0.0.1:$WEBSOCKET_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \"upgrade\";
+        proxy_set_header Host \$host;
+        proxy_read_timeout 86400;
+    }
+}
+NGINX
+
+        # Create WSS nginx config (HTTPS fallback)
         sudo tee /etc/nginx/sites-available/wss << 'NGINX'
 server {
     listen $NGINX_WSS_PORT ssl;
@@ -289,7 +322,16 @@ server {
 }
 NGINX
 
-        # Enable and restart nginx
+        # Replace variable placeholders with actual values
+        sudo sed -i 's|\$FRONTEND_PORT|$FRONTEND_PORT|g' /etc/nginx/sites-available/tmux-builder
+        sudo sed -i 's|\$BACKEND_PORT|$BACKEND_PORT|g' /etc/nginx/sites-available/tmux-builder
+        sudo sed -i 's|\$WEBSOCKET_PORT|$WEBSOCKET_PORT|g' /etc/nginx/sites-available/tmux-builder
+        sudo sed -i 's|\$NGINX_WSS_PORT|$NGINX_WSS_PORT|g' /etc/nginx/sites-available/wss
+        sudo sed -i 's|\$WEBSOCKET_PORT|$WEBSOCKET_PORT|g' /etc/nginx/sites-available/wss
+
+        # Enable configs and restart nginx
+        sudo rm -f /etc/nginx/sites-enabled/default
+        sudo ln -sf /etc/nginx/sites-available/tmux-builder /etc/nginx/sites-enabled/
         sudo ln -sf /etc/nginx/sites-available/wss /etc/nginx/sites-enabled/
         sudo nginx -t && sudo systemctl restart nginx
     "

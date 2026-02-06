@@ -174,18 +174,36 @@ def get_sessions_by_email(email: str) -> List[Dict]:
 
 
 def get_client_info_from_guid(guid: str) -> Optional[Dict]:
-    """Get client info (email, name) from a session GUID."""
+    """Get client info (email, name, avatarUrl, theme) from a session GUID."""
     session_path = ACTIVE_SESSIONS_DIR / guid
     status_file = session_path / "status.json"
     if not status_file.exists():
         return None
     try:
         status = json.loads(status_file.read_text())
-        return {
+        result = {
             "email": status.get("email"),
             "name": status.get("client_name") or status.get("name"),
-            "phone": status.get("phone")
+            "phone": status.get("phone"),
+            "avatarUrl": None,
+            "theme": "ember"  # default theme
         }
+
+        # Try to fetch avatar URL and theme from cocreate-applications-data S3 bucket
+        try:
+            import boto3
+            s3 = boto3.client('s3', region_name='us-east-1')
+            profile_key = f"users/{guid}/profile.json"
+            response = s3.get_object(Bucket='cocreate-applications-data', Key=profile_key)
+            profile = json.loads(response['Body'].read().decode('utf-8'))
+            if profile.get('avatarUrl'):
+                result['avatarUrl'] = profile['avatarUrl']
+            if profile.get('theme'):
+                result['theme'] = profile['theme']
+        except Exception:
+            pass  # No avatar or profile found
+
+        return result
     except (json.JSONDecodeError, IOError):
         return None
 
@@ -364,6 +382,21 @@ async def register_user(request: RegistrationRequest):
             phone=request.phone,
             user_request=request.initial_request
         )
+
+        # Save user to DynamoDB on registration (so they appear in cost reports)
+        try:
+            from dynamodb_client import get_dynamo_client
+            dynamo = get_dynamo_client()
+            dynamo.save_project_resources(
+                user_id=request.email,
+                project_id=guid,
+                project_name=request.initial_request[:100] if request.initial_request else "New Project",
+                aws_resources={},  # Empty until they deploy
+                email=request.email
+            )
+            logger.info(f"✓ User saved to DynamoDB: {request.email}")
+        except Exception as dynamo_error:
+            logger.warning(f"Could not save user to DynamoDB: {dynamo_error}")
 
         # Build response
         base_url = os.getenv('BASE_URL', f'http://{API_HOST}:{API_PORT}')
@@ -609,17 +642,34 @@ async def create_admin_session(request: AdminSessionCreate):
         controller = result['controller']
         logger.info(f"Client session created: {controller.session_name}")
 
-        # Save name, email, phone, created_at to status.json
+        # Save name, email, phone, created_at to status.json (use consistent field names)
         status_file = ACTIVE_SESSIONS_DIR / new_guid / "status.json"
         if status_file.exists():
             status_data = json.loads(status_file.read_text())
-            status_data["client_name"] = request.name
-            status_data["client_email"] = request.email
-            status_data["client_phone"] = request.phone or ""
+            status_data["name"] = request.name
+            status_data["client_name"] = request.name  # Keep for backwards compatibility
+            status_data["email"] = request.email  # Use "email" not "client_email"
+            status_data["phone"] = request.phone or ""
             status_data["created_at"] = request.created_at
             if request.initial_request:
                 status_data["user_request"] = request.initial_request
+                status_data["initial_request"] = request.initial_request  # Also save as initial_request
             status_file.write_text(json.dumps(status_data, indent=2))
+
+        # Save user to DynamoDB on admin session creation
+        try:
+            from dynamodb_client import get_dynamo_client
+            dynamo = get_dynamo_client()
+            dynamo.save_project_resources(
+                user_id=request.email,
+                project_id=new_guid,
+                project_name=request.initial_request[:100] if request.initial_request else request.name or "New Project",
+                aws_resources={},  # Empty until deployed
+                email=request.email
+            )
+            logger.info(f"✓ Admin session saved to DynamoDB: {request.email}")
+        except Exception as dynamo_error:
+            logger.warning(f"Could not save admin session to DynamoDB: {dynamo_error}")
 
         # If initial_request provided, send it to Claude CLI
         if request.initial_request:
@@ -871,6 +921,21 @@ async def create_client_project(data: ClientProjectCreate):
             status["initial_request"] = data.initial_request
             status_file.write_text(json.dumps(status, indent=2))
 
+        # Save user to DynamoDB on client project creation
+        try:
+            from dynamodb_client import get_dynamo_client
+            dynamo = get_dynamo_client()
+            dynamo.save_project_resources(
+                user_id=data.email,
+                project_id=guid,
+                project_name=data.initial_request[:100] if data.initial_request else data.name or "New Project",
+                aws_resources={},  # Empty until deployed
+                email=data.email
+            )
+            logger.info(f"✓ Client project saved to DynamoDB: {data.email}")
+        except Exception as dynamo_error:
+            logger.warning(f"Could not save client project to DynamoDB: {dynamo_error}")
+
         return {
             "success": True,
             "guid": guid,
@@ -955,6 +1020,58 @@ async def duplicate_client_project(guid: str):
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class SaveThemeRequest(BaseModel):
+    guid: str
+    theme: str
+
+
+@app.post("/api/client/save-theme")
+async def save_client_theme(request: SaveThemeRequest):
+    """Save user's theme preference to S3 profile."""
+    guid = request.guid
+    theme = request.theme
+
+    # Validate theme
+    valid_themes = ['ember', 'coral', 'sunset', 'aurora', 'legacy', 'sandstone', 'champagne', 'zoom']
+    if theme not in valid_themes:
+        raise HTTPException(status_code=400, detail="Invalid theme")
+
+    # Verify guid exists
+    session_path = ACTIVE_SESSIONS_DIR / guid
+    if not session_path.exists():
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        import boto3
+        s3 = boto3.client('s3', region_name='us-east-1')
+        bucket = 'cocreate-applications-data'
+        profile_key = f"users/{guid}/profile.json"
+
+        # Get existing profile
+        profile = {}
+        try:
+            response = s3.get_object(Bucket=bucket, Key=profile_key)
+            profile = json.loads(response['Body'].read().decode('utf-8'))
+        except Exception:
+            pass  # No profile yet
+
+        # Update theme
+        profile['theme'] = theme
+
+        # Save back to S3
+        s3.put_object(
+            Bucket=bucket,
+            Key=profile_key,
+            Body=json.dumps(profile),
+            ContentType='application/json'
+        )
+
+        return {"success": True, "theme": theme}
+    except Exception as e:
+        logger.error(f"Failed to save theme: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1512,6 +1629,21 @@ async def approve_request(request_id: str):
             status["initial_request"] = request_data.get("initial_request", "")
             status["approved_from_request"] = request_id
             status_file.write_text(json.dumps(status, indent=2))
+
+        # Save user to DynamoDB on request approval
+        try:
+            from dynamodb_client import get_dynamo_client
+            dynamo = get_dynamo_client()
+            dynamo.save_project_resources(
+                user_id=request_data["email"],
+                project_id=new_guid,
+                project_name=request_data.get("initial_request", "")[:100] or request_data["name"] or "New Project",
+                aws_resources={},  # Empty until deployed
+                email=request_data["email"]
+            )
+            logger.info(f"✓ Approved request saved to DynamoDB: {request_data['email']}")
+        except Exception as dynamo_error:
+            logger.warning(f"Could not save approved request to DynamoDB: {dynamo_error}")
 
         # Update pending request status
         request_data["status"] = "approved"

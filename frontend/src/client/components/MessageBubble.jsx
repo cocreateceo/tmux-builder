@@ -1,7 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CodeBlock } from './CodeBlock';
-import { User, Bot, ExternalLink } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 
 function formatTime(timestamp) {
   if (!timestamp) return '';
@@ -9,7 +9,7 @@ function formatTime(timestamp) {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export function MessageBubble({ message }) {
+export function MessageBubble({ message, client }) {
   const isUser = message.role === 'user';
   const isDeployment = message.content?.toLowerCase().includes('deployed:') ||
                        message.type === 'deployed';
@@ -18,17 +18,32 @@ export function MessageBubble({ message }) {
   const deployUrlMatch = message.content?.match(/https?:\/\/[^\s]+/);
   const deployUrl = isDeployment ? deployUrlMatch?.[0] : null;
 
+  // Get user initials for fallback avatar
+  const userInitial = client?.name?.[0]?.toUpperCase() || client?.email?.[0]?.toUpperCase() || 'U';
+
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
       {/* Avatar */}
       <div
-        className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center"
-        style={{ background: isUser ? 'var(--primary)' : 'var(--bg-secondary)' }}
+        className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center overflow-hidden"
+        style={{ background: isUser ? 'var(--primary)' : 'transparent' }}
       >
         {isUser ? (
-          <User className="w-4 h-4 text-white" />
+          client?.avatarUrl ? (
+            <img
+              src={client.avatarUrl}
+              alt="You"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <span className="text-white text-sm font-medium">{userInitial}</span>
+          )
         ) : (
-          <Bot className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
+          <img
+            src="/assets/logo.png"
+            alt="CoCreate"
+            className="w-full h-full object-cover"
+          />
         )}
       </div>
 
@@ -40,7 +55,7 @@ export function MessageBubble({ message }) {
           style={{ color: 'var(--text-muted)' }}
         >
           <span className="font-medium">
-            {isUser ? 'You' : 'Claude'}
+            {isUser ? 'You' : 'CoCreate'}
           </span>
           <span>{formatTime(message.timestamp)}</span>
         </div>

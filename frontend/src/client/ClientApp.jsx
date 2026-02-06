@@ -304,7 +304,7 @@ function ClientAppContent() {
         }}
       />
 
-      <Header client={client} connected={connected} />
+      <Header client={client} connected={connected} guid={guid} />
 
       <div className="flex-1 flex overflow-hidden">
         <ProjectSidebar
@@ -324,6 +324,7 @@ function ClientAppContent() {
           project={currentProject}
           messages={messages}
           loading={loading}
+          client={client}
           onSendMessage={handleSendMessage}
           onFileUpload={handleFileUpload}
           onProjectAction={() => {}}

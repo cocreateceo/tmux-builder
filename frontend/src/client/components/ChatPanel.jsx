@@ -6,6 +6,7 @@ export function ChatPanel({
   project,
   messages,
   loading,
+  client,
   onSendMessage,
   onFileUpload,
   onProjectAction
@@ -140,15 +141,34 @@ export function ChatPanel({
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center h-full">
-            <div className="text-center" style={{ color: 'var(--text-muted)' }}>
-              <p className="text-lg mb-2">No messages yet</p>
-              <p className="text-sm">Start a conversation to begin building</p>
+          <div className="flex gap-3">
+            {/* CoCreate Agent Avatar */}
+            <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center overflow-hidden">
+              <img
+                src="/assets/logo.png"
+                alt="CoCreate"
+                className="w-full h-full object-cover"
+              />
+            </div>
+            {/* Welcome Message */}
+            <div className="flex-1 max-w-[80%]">
+              <div className="flex items-center gap-2 mb-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+                <span className="font-medium">CoCreate</span>
+              </div>
+              <div
+                className="rounded-2xl rounded-tl-sm px-4 py-3 inline-block"
+                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+              >
+                <p className="text-base mb-2">👋 Welcome to <strong>CoCreate Agent</strong>!</p>
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  I'm here to help you build amazing products. Tell me your idea and I'll create it for you - websites, apps, landing pages, and more!
+                </p>
+              </div>
             </div>
           </div>
         ) : (
           messages.map((message, index) => (
-            <MessageBubble key={index} message={message} />
+            <MessageBubble key={index} message={message} client={client} />
           ))
         )}
 

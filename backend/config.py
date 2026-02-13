@@ -13,14 +13,21 @@ from typing import Dict
 # BASE PATHS
 # ==============================================
 
+# Detect if running in Lightsail container
+IS_LIGHTSAIL = os.getenv('LIGHTSAIL_DEPLOYMENT', 'false').lower() == 'true'
+
 # Base directory (backend folder)
 BASE_DIR = Path(__file__).parent.resolve()
 
 # Project root (parent of backend)
 PROJECT_ROOT = BASE_DIR.parent
 
-# Sessions directory - Use project directory for easier access
-SESSIONS_DIR = PROJECT_ROOT / "sessions"
+# Sessions directory - Use /app/sessions in container, project directory otherwise
+if IS_LIGHTSAIL:
+    SESSIONS_DIR = Path("/app/sessions")
+else:
+    SESSIONS_DIR = PROJECT_ROOT / "sessions"
+
 ACTIVE_SESSIONS_DIR = SESSIONS_DIR / "active"
 DELETED_SESSIONS_DIR = SESSIONS_DIR / "deleted"
 PENDING_REQUESTS_DIR = SESSIONS_DIR / "pending"
@@ -167,19 +174,24 @@ OUTPUT_DIR_NAME = "output"
 # ==============================================
 
 # Backend server port
-BACKEND_PORT = int(os.getenv('BACKEND_PORT', '8000'))
+BACKEND_PORT = int(os.getenv('BACKEND_PORT', '8080' if IS_LIGHTSAIL else '8000'))
 
 # Aliases for API server compatibility
 API_PORT = BACKEND_PORT
 API_HOST = os.getenv('API_HOST', '0.0.0.0')
 
-# CORS origins
+# CORS origins - add CloudFront and Lightsail URLs for production
 CORS_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:3000",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:3000",
+    "https://d3tfeatcbws1ka.cloudfront.net",  # Production CloudFront
 ]
+
+# Add Lightsail URL if provided
+if os.getenv('LIGHTSAIL_URL'):
+    CORS_ORIGINS.append(os.getenv('LIGHTSAIL_URL'))
 
 # Logging level
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
@@ -356,10 +368,17 @@ def print_config():
     print(f"Log Level:           {LOG_LEVEL}")
     print("=" * 60)
 
-# Validate on import (can be disabled with environment variable)
-if os.getenv('SKIP_CONFIG_VALIDATION') != 'true':
+# Validate on import (can be disabled with environment variable or in Lightsail)
+# Skip validation in Lightsail during startup (dependencies checked in Dockerfile)
+if os.getenv('SKIP_CONFIG_VALIDATION') != 'true' and not IS_LIGHTSAIL:
     try:
         validate_config()
     except Exception as e:
         print(f"⚠️  Configuration validation failed: {e}")
         print("Set SKIP_CONFIG_VALIDATION=true to skip validation")
+
+# Print configuration mode
+if IS_LIGHTSAIL:
+    print("🚀 Running in Lightsail Container mode")
+else:
+    print("💻 Running in local development mode")

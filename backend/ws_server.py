@@ -9,6 +9,7 @@ This server:
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 from datetime import datetime
@@ -259,6 +260,38 @@ class ProgressWebSocketServer:
         except Exception as e:
             logger.warning(f"Failed to update chat history: {e}")
 
+    @staticmethod
+    def _get_project_id(guid: str, s3_bucket: str) -> str:
+        """Generate a unique, stable projectId from session guid + S3 bucket name.
+
+        Each deployment creates a unique S3 bucket, so hashing guid:bucket
+        produces a unique projectId per deployment while remaining idempotent.
+        """
+        if s3_bucket:
+            return hashlib.sha256(f"{guid}:{s3_bucket}".encode()).hexdigest()
+        return guid  # Fallback for non-deployment resource saves
+
+    @staticmethod
+    def _extract_project_name_from_bucket(s3_bucket: str) -> str:
+        """Extract a human-readable project name from an S3 bucket name.
+
+        e.g. 'tmux-cba6eaf3633e-teashop' -> 'teashop'
+             'tmux-cba6eaf3633e-juiceshop-20260204-122510' -> 'juiceshop'
+        """
+        if not s3_bucket:
+            return ""
+        parts = s3_bucket.split('-')
+        # Bucket format: tmux-<guid_prefix>-<name>[-timestamp]
+        if len(parts) >= 3 and parts[0] == 'tmux':
+            # Skip 'tmux' and the guid prefix, take the project name part
+            name_parts = parts[2:]
+            # Remove trailing timestamp parts (pure digits)
+            while name_parts and name_parts[-1].isdigit():
+                name_parts.pop()
+            if name_parts:
+                return ' '.join(name_parts).title()
+        return ""
+
     def _save_deployed_url(self, guid: str, deployed_url: str):
         """Save deployed URL to status.json and DynamoDB."""
         try:
@@ -287,15 +320,25 @@ class ProgressWebSocketServer:
                 user_id = email if email else status.get('client_name', guid)
                 project_name = status.get('initial_request', '')[:100] or status.get('user_request', '')[:100] or "Project"
 
+                # Derive unique projectId from S3 bucket (if available in status)
+                aws_res = status.get('aws_resources', {})
+                s3_bucket = aws_res.get('s3Bucket', '') or aws_res.get('s3_bucket', '')
+                project_id = self._get_project_id(guid, s3_bucket)
+
+                # Use bucket-derived name if available and better than generic name
+                bucket_name = self._extract_project_name_from_bucket(s3_bucket)
+                if bucket_name:
+                    project_name = bucket_name
+
                 dynamo = get_dynamo_client()
                 dynamo.save_project_resources(
                     user_id=user_id,
-                    project_id=guid,
+                    project_id=project_id,
                     project_name=project_name,
                     aws_resources={'deployed_url': deployed_url},
                     email=email
                 )
-                logger.info(f"[{guid}] Saved deployed_url to DynamoDB: {deployed_url}")
+                logger.info(f"[{guid}] Saved deployed_url to DynamoDB (projectId={project_id[:12]}...): {deployed_url}")
             except Exception as dynamo_error:
                 logger.warning(f"[{guid}] Could not save deployed_url to DynamoDB: {dynamo_error}")
 
@@ -329,18 +372,27 @@ class ProgressWebSocketServer:
                 user_id = email if email else status.get('client_name', guid)
                 project_name = status.get('initial_request', '')[:100] or status.get('user_request', '')[:100] or "Project"
 
+            # Derive unique projectId from S3 bucket (unique per deployment)
+            s3_bucket = resource_data.get('s3Bucket', '') or resource_data.get('s3_bucket', '')
+            project_id = self._get_project_id(guid, s3_bucket)
+
+            # Use bucket-derived name if available and better than generic name
+            bucket_name = self._extract_project_name_from_bucket(s3_bucket)
+            if bucket_name:
+                project_name = bucket_name
+
             # Save to DynamoDB
             dynamo = get_dynamo_client()
             saved_to_dynamo = dynamo.save_project_resources(
                 user_id=user_id,
-                project_id=guid,
+                project_id=project_id,
                 project_name=project_name,
                 aws_resources=resource_data,
                 email=email
             )
 
             if saved_to_dynamo:
-                logger.info(f"[{guid}] Resources saved to DynamoDB for user {user_id}")
+                logger.info(f"[{guid}] Resources saved to DynamoDB for user {user_id} (projectId={project_id[:12]}...)")
 
         except ImportError:
             logger.warning("DynamoDB client not available - resources not saved to cloud")
